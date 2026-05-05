@@ -1,0 +1,26 @@
+# Go
+*.test
+*.out
+/bin/
+/dist/
+
+# Xcode
+**/build/
+*.xcuserstate
+**/xcuserdata/
+**/DerivedData/
+examples/counter-ios/CounterDemo.xcodeproj/
+
+# Android Studio / Gradle
+**/.gradle/
+**/local.properties
+**/*.iml
+**/captures/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
