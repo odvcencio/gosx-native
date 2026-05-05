@@ -176,7 +176,7 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 		if isConditionalComponent(node.Tag) {
 			return l.lowerConditionalView(node)
 		}
-		return l.lowerElementView(node)
+		return l.lowerComponentRefView(node)
 	case gosxir.NodeElement:
 		return l.lowerElementView(node)
 	case gosxir.NodeText, gosxir.NodeRawHTML:
@@ -240,6 +240,54 @@ func (l *lowerer) lowerElementView(node *gosxir.Node) (nir.View, error) {
 		}
 	}
 	return element, nil
+}
+
+func (l *lowerer) lowerComponentRefView(node *gosxir.Node) (nir.View, error) {
+	if len(node.Children) > 0 {
+		return nil, fmt.Errorf("component %s children require slot support", node.Tag)
+	}
+	ref := &nir.ComponentRef{
+		Name: node.Tag,
+		Span: irSpan(node.Span),
+	}
+	for _, attr := range node.Attrs {
+		prop, ok, err := l.lowerComponentProp(attr)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			ref.Props = append(ref.Props, prop)
+		}
+	}
+	return ref, nil
+}
+
+func (l *lowerer) lowerComponentProp(attr gosxir.Attr) (nir.Attr, bool, error) {
+	if attr.IsEvent {
+		return nir.Attr{}, false, fmt.Errorf("component event prop %q requires callback prop support", attr.Name)
+	}
+	switch attr.Kind {
+	case gosxir.AttrStatic:
+		return nir.Attr{
+			Name:  attr.Name,
+			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: attr.Value}},
+		}, true, nil
+	case gosxir.AttrBool:
+		return nir.Attr{
+			Name:  attr.Name,
+			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "bool", Value: "true"}},
+		}, true, nil
+	case gosxir.AttrExpr:
+		expr, err := l.lowerRxExpr(attr.Expr)
+		if err != nil {
+			return nir.Attr{}, false, err
+		}
+		return nir.Attr{Name: attr.Name, Value: *expr}, true, nil
+	case gosxir.AttrSpread:
+		return nir.Attr{}, false, fmt.Errorf("component prop spread is not supported")
+	default:
+		return nir.Attr{}, false, nil
+	}
 }
 
 func (l *lowerer) lowerConditionalView(node *gosxir.Node) (nir.View, error) {

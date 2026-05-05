@@ -2,7 +2,7 @@
 
 The mobile counterpart to [gosx](https://github.com/odvcencio/gosx). React Native is to React what gosx-native is to gosx: same component model, same reactive primitives, same scene graph, different rendering targets.
 
-**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates the Compose source and assembles a debug APK in CI. GoSX `.gsx` Counter, Panel, Greeter, Derived, and Toggle fixtures now lower through the shared NIR and emit deterministic SwiftUI/Compose source.**
+**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates the Compose source and assembles a debug APK in CI. GoSX `.gsx` Counter, Panel, Greeter, Derived, Toggle, and Profile fixtures now lower through the shared NIR and emit deterministic SwiftUI/Compose source.**
 
 See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers/specs/2026-05-04-gosx-native-design.md) for the design.
 
@@ -14,6 +14,7 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 - GoSX text-input fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/greeter.gsx`
 - GoSX computed fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/derived.gsx`
 - GoSX conditional fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/conditional.gsx`
+- GoSX component-reference fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/component_ref.gsx`
 - iOS smoke: `make smoke`
 - Android assemble smoke: `make android-smoke`
 - Android emulator interaction smoke, with an emulator already booted: `make android-connected`

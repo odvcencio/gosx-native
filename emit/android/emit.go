@@ -70,6 +70,12 @@ func viewHasTag(v nir.View, tag string) bool {
 				return true
 			}
 		}
+	case *nir.ComponentRef:
+		for _, child := range n.Children {
+			if viewHasTag(child, tag) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -151,9 +157,19 @@ func emitView(v nir.View, indent int) string {
 		return pad + `Text(text = "${` + emitRxExpr(&n.Expr) + `}")`
 	case *nir.Conditional:
 		return emitConditional(n, indent)
+	case *nir.ComponentRef:
+		return pad + emitComponentRef(n)
 	default:
 		return pad + "/* unsupported view */"
 	}
+}
+
+func emitComponentRef(n *nir.ComponentRef) string {
+	props := make([]string, len(n.Props))
+	for i := range n.Props {
+		props[i] = fmt.Sprintf("%s = %s", n.Props[i].Name, emitRxExpr(&n.Props[i].Value))
+	}
+	return fmt.Sprintf("%s(props = %sProps(%s))", n.Name, n.Name, strings.Join(props, ", "))
 }
 
 func emitConditional(n *nir.Conditional, indent int) string {

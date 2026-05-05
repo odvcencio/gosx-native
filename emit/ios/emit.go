@@ -94,9 +94,19 @@ func emitView(v nir.View, indent int) string {
 		return pad + fmt.Sprintf(`Text("\(%s)")`, emitRxExpr(&n.Expr))
 	case *nir.Conditional:
 		return emitConditional(n, indent)
+	case *nir.ComponentRef:
+		return pad + emitComponentRef(n)
 	default:
 		return pad + "/* unsupported view */"
 	}
+}
+
+func emitComponentRef(n *nir.ComponentRef) string {
+	props := make([]string, len(n.Props))
+	for i := range n.Props {
+		props[i] = fmt.Sprintf("%s: %s", n.Props[i].Name, emitRxExpr(&n.Props[i].Value))
+	}
+	return fmt.Sprintf("%s(props: %s.Props(%s))", n.Name, n.Name, strings.Join(props, ", "))
 }
 
 func emitConditional(n *nir.Conditional, indent int) string {

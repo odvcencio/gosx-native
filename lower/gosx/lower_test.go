@@ -185,6 +185,40 @@ func TestLowerConditionalCoversIfViewNode(t *testing.T) {
 	requireLiteralValue(t, button.Handlers[0].Body.Stmts[0].Value, "bool", "false")
 }
 
+func TestLowerComponentRefCoversNestedComponentCall(t *testing.T) {
+	mod := lowerFixture(t, "component_ref.gsx")
+	if got := len(mod.Components); got != 2 {
+		t.Fatalf("component count = %d, want 2", got)
+	}
+	badge := findComponent(t, mod, "Badge")
+	if got, want := badge.Props.Fields, []nir.PropField{
+		{Name: "label", Type: "String"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("badge props = %+v, want %+v", got, want)
+	}
+	badgeBody := requireElement(t, badge.Body, "text")
+	requireExprHoleRef(t, badgeBody.Children[0], "props.label")
+
+	profile := findComponent(t, mod, "Profile")
+	if got, want := profile.Props.Fields, []nir.PropField{
+		{Name: "name", Type: "String"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("profile props = %+v, want %+v", got, want)
+	}
+	root := requireElement(t, profile.Body, "vstack")
+	if got := len(root.Children); got != 1 {
+		t.Fatalf("root children = %d, want 1", got)
+	}
+	ref := requireComponentRef(t, root.Children[0], "Badge")
+	if got := len(ref.Props); got != 1 {
+		t.Fatalf("component props = %d, want 1", got)
+	}
+	if ref.Props[0].Name != "label" {
+		t.Fatalf("prop name = %q, want label", ref.Props[0].Name)
+	}
+	requireRefValue(t, &ref.Props[0].Value, "props.name")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))
@@ -196,6 +230,17 @@ func lowerFixture(t *testing.T, name string) *nir.Module {
 		t.Fatalf("lower fixture %s: %v", name, err)
 	}
 	return mod
+}
+
+func findComponent(t *testing.T, mod *nir.Module, name string) *nir.Component {
+	t.Helper()
+	for _, component := range mod.Components {
+		if component.Name == name {
+			return component
+		}
+	}
+	t.Fatalf("missing component %q", name)
+	return nil
 }
 
 func assertSignal(t *testing.T, sig *nir.SignalDecl, name, typ, initRef string) {
@@ -283,6 +328,18 @@ func requireConditional(t *testing.T, view nir.View, conditionRef string) *nir.C
 	return conditional
 }
 
+func requireComponentRef(t *testing.T, view nir.View, name string) *nir.ComponentRef {
+	t.Helper()
+	ref, ok := view.(*nir.ComponentRef)
+	if !ok {
+		t.Fatalf("view = %T, want *nir.ComponentRef", view)
+	}
+	if ref.Name != name {
+		t.Fatalf("component ref = %q, want %q", ref.Name, name)
+	}
+	return ref
+}
+
 func requireRefValue(t *testing.T, expr *nir.RxExpr, ref string) {
 	t.Helper()
 	if expr == nil || expr.Kind != "ref" || expr.Ref != ref {
@@ -349,6 +406,15 @@ func normalizeView(view nir.View) {
 			normalizeView(child)
 		}
 		for _, child := range node.Else {
+			normalizeView(child)
+		}
+	case *nir.ComponentRef:
+		node.Span = nir.Span{}
+		for i := range node.Props {
+			node.Props[i].Span = nir.Span{}
+			normalizeRxExpr(&node.Props[i].Value)
+		}
+		for _, child := range node.Children {
 			normalizeView(child)
 		}
 	}
