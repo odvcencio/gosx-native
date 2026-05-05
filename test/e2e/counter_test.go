@@ -39,16 +39,17 @@ func TestCounterEndToEnd(t *testing.T) {
 		t.Fatalf("xcodegen: %v", err)
 	}
 
-	build := exec.Command("xcodebuild",
+	test := exec.Command("xcodebuild",
 		"-project", filepath.Join(repoRoot, "examples/counter-ios/CounterDemo.xcodeproj"),
 		"-scheme", "CounterDemo",
 		"-destination", "platform=iOS Simulator,name="+simName(),
-		"build",
+		"-derivedDataPath", t.TempDir(),
+		"test",
 	)
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		t.Fatalf("xcodebuild: %v", err)
+	test.Stdout = os.Stdout
+	test.Stderr = os.Stderr
+	if err := test.Run(); err != nil {
+		t.Fatalf("xcodebuild test: %v", err)
 	}
 }
 

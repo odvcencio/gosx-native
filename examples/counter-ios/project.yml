@@ -25,3 +25,26 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         TARGETED_DEVICE_FAMILY: "1,2"
+
+  CounterDemoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - CounterDemoUITests
+    dependencies:
+      - target: CounterDemo
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CounterDemo
+
+schemes:
+  CounterDemo:
+    build:
+      targets:
+        CounterDemo: all
+        CounterDemoUITests: [test]
+    test:
+      gatherCoverageData: false
+      targets:
+        - CounterDemoUITests
