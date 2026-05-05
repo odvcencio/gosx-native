@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/odvcencio/gosx-native/emit/android"
 	"github.com/odvcencio/gosx-native/emit/ios"
 )
 
@@ -17,9 +18,11 @@ func runEmit(args []string) error {
 		return err
 	}
 	switch target {
+	case "android":
+		return android.Emit(mod, os.Stdout)
 	case "ios":
 		return ios.Emit(mod, os.Stdout)
 	default:
-		return fmt.Errorf("unknown target: %s (M1 supports: ios)", target)
+		return fmt.Errorf("unknown target: %s (supported: ios, android)", target)
 	}
 }

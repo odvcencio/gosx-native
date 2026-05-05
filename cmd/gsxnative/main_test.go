@@ -30,3 +30,15 @@ func TestEmitIOSCounterPrintsSwift(t *testing.T) {
 		t.Fatalf("expected Counter struct in emitted Swift, got:\n%s", out.String())
 	}
 }
+
+func TestEmitAndroidCounterPrintsKotlin(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/swift/counter.swift.gsx")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(out.String(), "fun Counter(props: CounterProps)") {
+		t.Fatalf("expected Counter composable in emitted Kotlin, got:\n%s", out.String())
+	}
+}

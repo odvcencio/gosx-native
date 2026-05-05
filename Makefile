@@ -9,7 +9,9 @@ smoke:
 demo:
 	@echo "Running M1 vertical slice demo..."
 	go run ./cmd/gsxnative emit ios testdata/corpus/swift/counter.swift.gsx > /tmp/Counter.swift
+	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > /tmp/Counter.kt
 	@echo "Generated /tmp/Counter.swift"
+	@echo "Generated /tmp/Counter.kt"
 
 lint:
 	go vet ./...

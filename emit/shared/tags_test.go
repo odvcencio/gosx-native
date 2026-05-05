@@ -24,3 +24,25 @@ func TestUnknownTagReportsError(t *testing.T) {
 		t.Errorf("expected empty for unknown, got %q", got)
 	}
 }
+
+func TestComposeTagMapping(t *testing.T) {
+	cases := map[string]string{
+		"vstack": "Column",
+		"hstack": "Row",
+		"text":   "Text",
+		"button": "Button",
+	}
+	for nir, want := range cases {
+		got := ComposeTag(nir)
+		if got != want {
+			t.Errorf("ComposeTag(%q) = %q, want %q", nir, got, want)
+		}
+	}
+}
+
+func TestUnknownComposeTagReportsError(t *testing.T) {
+	got := ComposeTag("nonexistent_tag")
+	if got != "" {
+		t.Errorf("expected empty for unknown, got %q", got)
+	}
+}
