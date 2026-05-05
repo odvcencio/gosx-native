@@ -16,7 +16,7 @@ android {
     }
 
     sourceSets.named("main") {
-        kotlin.directories += rootProject.file("../../runtime/android/src/main/kotlin")
+        kotlin.directories.add(rootProject.file("../../runtime/android/src/main/kotlin").path)
     }
 
     buildFeatures {
