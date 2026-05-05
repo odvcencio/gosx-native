@@ -1,10 +1,14 @@
-.PHONY: test smoke demo lint
+.PHONY: test smoke android-smoke demo lint
 
 test:
 	go test ./...
 
 smoke:
 	cd test/e2e && go test -tags smoke -v ./...
+
+android-smoke:
+	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/java/generated/Counter.kt
+	cd examples/counter-android && gradle --no-daemon :app:assembleDebug
 
 demo:
 	@echo "Running M1 vertical slice demo..."

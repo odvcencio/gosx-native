@@ -62,3 +62,37 @@ jobs:
       - name: E2E
         working-directory: gosx-native
         run: go test -tags smoke -v ./test/e2e/...
+
+  android-smoke-linux:
+    runs-on: ubuntu-latest
+    needs: unit-linux
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gosx-native
+      - uses: actions/checkout@v4
+        with:
+          repository: odvcencio/gosx
+          path: gosx
+      - uses: actions/checkout@v4
+        with:
+          repository: odvcencio/gotreesitter
+          path: gotreesitter
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.4.1"
+      - name: Refresh generated Counter
+        working-directory: gosx-native
+        run: |
+          go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/java/generated/Counter.kt
+          git diff --exit-code -- examples/counter-android/app/src/main/java/generated/Counter.kt
+      - name: Assemble Android Counter demo
+        working-directory: gosx-native/examples/counter-android
+        run: gradle --no-daemon :app:assembleDebug

@@ -2,9 +2,16 @@
 
 The mobile counterpart to [gosx](https://github.com/odvcencio/gosx). React Native is to React what gosx-native is to gosx: same component model, same reactive primitives, same scene graph, different rendering targets.
 
-**Status: M1 - vertical slice complete. Counter demo builds and passes a Simulator UI smoke test. Android Compose source emission is covered for the same Counter NIR; Android project/build smoke is next.**
+**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates the Compose source and assembles a debug APK in CI.**
 
 See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers/specs/2026-05-04-gosx-native-design.md) for the design.
+
+## Counter Demos
+
+- iOS smoke: `make smoke`
+- Android assemble smoke: `make android-smoke`
+
+The Android smoke expects Gradle plus Android SDK platform 36/build-tools 36.0.0. CI pins Gradle 9.4.1, Android Gradle Plugin 9.2.0, Kotlin/Compose compiler 2.3.21, Compose BOM 2026.04.01, and Activity Compose 1.13.0.
 
 ## License
 

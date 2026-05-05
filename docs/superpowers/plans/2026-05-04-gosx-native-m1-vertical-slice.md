@@ -1847,7 +1847,7 @@ git add README.md && buckley commit --yes -min
 Each gets its own plan document when its turn comes.
 
 ### M2 — Android target (Kotlin emit + Compose runtime)
-Mirror of M1 on Android. Same Counter, same NIR, new emit (`emit/android`), new runtime (`runtime/android` with `gsxnative.aar`), Gradle build smoke. Validates the cross-target portability claim concretely.
+Mirror of M1 on Android. Same Counter, same NIR, new emit (`emit/android`), new runtime (`runtime/android`), Gradle build smoke. The Counter Compose source emitter and runtime stubs are in place; `docs/superpowers/plans/2026-05-05-android-counter-build-smoke.md` tracks the Android debug APK compile proof and the remaining emulator/AAR work.
 
 ### M3 — `go+gsx` front end
 Lower the existing gosx Go-side IR (or refactor `gosx/ir/lower.go` to emit NIR directly) so a `.gsx` file authored in Go can target iOS and Android. Counter authored in Go produces equivalent iOS and Android apps.
