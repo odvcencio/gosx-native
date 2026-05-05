@@ -83,7 +83,10 @@ func emitComponent(w io.Writer, c *nir.Component) error {
 	for _, sig := range c.Signals {
 		fmt.Fprintf(w, "    var %s by rememberGSXSignal(%s)\n", sig.Name, emitRxExpr(sig.Init))
 	}
-	if len(c.Signals) > 0 {
+	for _, computed := range c.Computeds {
+		fmt.Fprintf(w, "    val %s = %s\n", computed.Name, emitRxExpr(computed.Body))
+	}
+	if len(c.Signals) > 0 || len(c.Computeds) > 0 {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "%s\n", emitView(c.Body, 1))

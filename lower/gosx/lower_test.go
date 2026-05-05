@@ -106,6 +106,44 @@ func TestLowerGreeterCoversEventValueTextInput(t *testing.T) {
 	requireRefValue(t, input.Handlers[0].Body.Stmts[0].Value, "event.value")
 }
 
+func TestLowerDerivedCoversComputedDecl(t *testing.T) {
+	mod := lowerFixture(t, "derived.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "Derived" {
+		t.Fatalf("component name = %q, want Derived", component.Name)
+	}
+	if got, want := component.Props.Fields, []nir.PropField{
+		{Name: "start", Type: "Int"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	if got := len(component.Signals); got != 1 {
+		t.Fatalf("signals = %d, want 1", got)
+	}
+	assertSignal(t, component.Signals[0], "count", "Int", "props.start")
+	if got := len(component.Computeds); got != 1 {
+		t.Fatalf("computeds = %d, want 1", got)
+	}
+	computed := component.Computeds[0]
+	if computed.Name != "doubled" || computed.Type != "Int" {
+		t.Fatalf("computed = %+v, want doubled Int", computed)
+	}
+	requireBinOpValue(t, computed.Body, "*")
+
+	root := requireElement(t, component.Body, "vstack")
+	if got := len(root.Children); got != 2 {
+		t.Fatalf("root children = %d, want 2", got)
+	}
+	text := requireElement(t, root.Children[0], "text")
+	requireExprHoleRef(t, text.Children[0], "doubled")
+	button := requireElement(t, root.Children[1], "button")
+	requireHandlerTargets(t, button, []string{"count"})
+	requireBinOpValue(t, button.Handlers[0].Body.Stmts[0].Value, "+")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))
@@ -185,6 +223,15 @@ func requireAttr(t *testing.T, element *nir.Element, name string) *nir.RxExpr {
 	return nil
 }
 
+func requireExprHoleRef(t *testing.T, view nir.View, ref string) {
+	t.Helper()
+	hole, ok := view.(*nir.ExprHole)
+	if !ok {
+		t.Fatalf("view = %T, want *nir.ExprHole", view)
+	}
+	requireRefValue(t, &hole.Expr, ref)
+}
+
 func requireRefValue(t *testing.T, expr *nir.RxExpr, ref string) {
 	t.Helper()
 	if expr == nil || expr.Kind != "ref" || expr.Ref != ref {
@@ -213,6 +260,10 @@ func normalizeModule(mod *nir.Module) {
 		for _, signal := range component.Signals {
 			signal.Span = nir.Span{}
 			normalizeRxExpr(signal.Init)
+		}
+		for _, computed := range component.Computeds {
+			computed.Span = nir.Span{}
+			normalizeRxExpr(computed.Body)
 		}
 		normalizeView(component.Body)
 	}

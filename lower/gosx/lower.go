@@ -113,6 +113,14 @@ func (l *lowerer) lowerComponent(comp gosxir.Component) (*nir.Component, error) 
 			c.Signals = append(c.Signals, decl)
 			l.signals[decl.Name] = decl.Type
 		}
+		for _, computed := range comp.Scope.Computeds {
+			decl, err := l.lowerComputed(computed)
+			if err != nil {
+				return nil, fmt.Errorf("computed %s: %w", computed.Name, err)
+			}
+			c.Computeds = append(c.Computeds, decl)
+			l.signals[decl.Name] = decl.Type
+		}
 	}
 
 	body, err := l.lowerView(comp.Root)
@@ -139,6 +147,22 @@ func (l *lowerer) lowerSignal(sig gosxir.SignalInfo) (*nir.SignalDecl, error) {
 		Name: sig.Name,
 		Type: typ,
 		Init: init,
+	}, nil
+}
+
+func (l *lowerer) lowerComputed(computed gosxir.ComputedInfo) (*nir.ComputedDecl, error) {
+	body, err := l.lowerRxExpr(computed.BodyExpr)
+	if err != nil {
+		return nil, err
+	}
+	typ := l.inferExprType(body)
+	if typ == "" {
+		return nil, fmt.Errorf("cannot infer native type from %q", computed.BodyExpr)
+	}
+	return &nir.ComputedDecl{
+		Name: computed.Name,
+		Type: typ,
+		Body: body,
 	}, nil
 }
 
@@ -402,6 +426,21 @@ func (l *lowerer) inferExprType(expr *nir.RxExpr) string {
 			return typ
 		}
 	}
+	if expr.Kind == "binop" && expr.BinOp != nil {
+		left := l.inferExprType(&expr.BinOp.Left)
+		right := l.inferExprType(&expr.BinOp.Right)
+		switch expr.BinOp.Op {
+		case "==", "!=", "<", ">", "<=", ">=", "&&", "||":
+			return "Bool"
+		case "+":
+			if left == "String" || right == "String" {
+				return "String"
+			}
+			return numericType(left, right)
+		case "-", "*", "/", "%":
+			return numericType(left, right)
+		}
+	}
 	return ""
 }
 
@@ -615,6 +654,19 @@ func nativeTypeFromGoType(typ string) string {
 		return "Bool"
 	default:
 		return typ
+	}
+}
+
+func numericType(left, right string) string {
+	switch {
+	case left == "Double" || right == "Double":
+		return "Double"
+	case left == "Float" || right == "Float":
+		return "Float"
+	case left == "Int" || right == "Int":
+		return "Int"
+	default:
+		return ""
 	}
 }
 

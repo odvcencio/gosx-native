@@ -40,6 +40,9 @@ func emitComponent(w io.Writer, c *nir.Component) error {
 	for _, sig := range c.Signals {
 		fmt.Fprintf(w, "    @GSXSignal private var %s: %s\n", sig.Name, sig.Type)
 	}
+	for _, computed := range c.Computeds {
+		fmt.Fprintf(w, "    private var %s: %s { %s }\n", computed.Name, computed.Type, emitRxExpr(computed.Body))
+	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "    public init(props: Props) {")
 	fmt.Fprintln(w, "        self.props = props")
