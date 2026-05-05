@@ -13,4 +13,4 @@
 
 **Remaining proof after this slice:**
 - Computed values via a NIR `ComputedDecl`.
-- Native textarea/multiline input and non-string event fields (`checked`, `key`, `selectedIndex`).
+- More expression coverage: ternary, string helpers, and conversions.

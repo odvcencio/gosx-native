@@ -68,6 +68,15 @@ func emitView(v nir.View, indent int) string {
 		if n.Tag == "textinput" {
 			return pad + emitTextInput(n)
 		}
+		if n.Tag == "textarea" {
+			return pad + emitTextArea(n)
+		}
+		if n.Tag == "checkbox" {
+			return pad + emitCheckbox(n)
+		}
+		if n.Tag == "select" {
+			return emitSelect(n, indent)
+		}
 		for _, h := range n.Handlers {
 			if h.Event == "tap" {
 				return pad + fmt.Sprintf("Button(%s) { %s }", strconv.Quote(emitChildrenInline(n.Children)), emitRxBlock(h.Body))
@@ -163,17 +172,96 @@ func emitTextInput(n *nir.Element) string {
 	if value == nil {
 		value = &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: ""}}
 	}
+	var out string
 	for _, h := range n.Handlers {
 		if h.Event == "input" || h.Event == "change" {
-			return fmt.Sprintf(
+			out = fmt.Sprintf(
 				"TextField(%s, text: Binding(get: { %s }, set: { eventValue in %s }))",
 				strconv.Quote(placeholder),
 				emitRxExpr(value),
-				emitRxBlockWithEventValue(h.Body, "eventValue"),
+				emitRxBlockWithEventBindings(h.Body, eventBindings{"value": "eventValue"}),
+			)
+			break
+		}
+	}
+	if out == "" {
+		out = fmt.Sprintf("TextField(%s, text: .constant(%s))", strconv.Quote(placeholder), emitRxExpr(value))
+	}
+	if keyHandler := handlerForEvent(n, "key"); keyHandler != nil {
+		out += fmt.Sprintf(
+			".onSubmit { let eventKey = %s; %s }",
+			strconv.Quote("Enter"),
+			emitRxBlockWithEventBindings(keyHandler.Body, eventBindings{"key": "eventKey"}),
+		)
+	}
+	return out
+}
+
+func emitTextArea(n *nir.Element) string {
+	value := attrExpr(n, "value")
+	if value == nil {
+		value = &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: ""}}
+	}
+	for _, h := range n.Handlers {
+		if h.Event == "input" || h.Event == "change" {
+			return fmt.Sprintf(
+				"TextEditor(text: Binding(get: { %s }, set: { eventValue in %s }))",
+				emitRxExpr(value),
+				emitRxBlockWithEventBindings(h.Body, eventBindings{"value": "eventValue"}),
 			)
 		}
 	}
-	return fmt.Sprintf("TextField(%s, text: .constant(%s))", strconv.Quote(placeholder), emitRxExpr(value))
+	return fmt.Sprintf("TextEditor(text: .constant(%s))", emitRxExpr(value))
+}
+
+func emitCheckbox(n *nir.Element) string {
+	checked := attrExpr(n, "checked")
+	if checked == nil {
+		checked = &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "bool", Value: "false"}}
+	}
+	for _, h := range n.Handlers {
+		if h.Event == "change" || h.Event == "input" {
+			return fmt.Sprintf(
+				"Toggle(\"\", isOn: Binding(get: { %s }, set: { eventChecked in %s }))",
+				emitRxExpr(checked),
+				emitRxBlockWithEventBindings(h.Body, eventBindings{"checked": "eventChecked"}),
+			)
+		}
+	}
+	return fmt.Sprintf("Toggle(\"\", isOn: .constant(%s))", emitRxExpr(checked))
+}
+
+func emitSelect(n *nir.Element, indent int) string {
+	pad := strings.Repeat("    ", indent)
+	childPad := strings.Repeat("    ", indent+1)
+	selection := attrExpr(n, "selectedIndex")
+	if selection == nil {
+		selection = &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "int", Value: "0"}}
+	}
+	binding := fmt.Sprintf(".constant(%s)", emitRxExpr(selection))
+	if handler := handlerForEvent(n, "change"); handler != nil {
+		binding = fmt.Sprintf(
+			"Binding(get: { %s }, set: { eventSelectedIndex in %s })",
+			emitRxExpr(selection),
+			emitRxBlockWithEventBindings(handler.Body, eventBindings{"selectedIndex": "eventSelectedIndex"}),
+		)
+	}
+	var sb strings.Builder
+	sb.WriteString(pad)
+	sb.WriteString("Picker(\"\", selection: ")
+	sb.WriteString(binding)
+	sb.WriteString(") {\n")
+	for index, label := range optionLabels(n.Children) {
+		sb.WriteString(childPad)
+		sb.WriteString("Text(")
+		sb.WriteString(strconv.Quote(label))
+		sb.WriteString(").tag(")
+		sb.WriteString(strconv.Itoa(index))
+		sb.WriteString(")\n")
+	}
+	sb.WriteString(pad)
+	sb.WriteString("}")
+	return sb.String()
 }
 
 func emitTextElement(n *nir.Element) string {
@@ -223,16 +311,47 @@ func emitInterpolatedString(children []nir.View) string {
 	return sb.String()
 }
 
+func handlerForEvent(n *nir.Element, event string) *nir.Handler {
+	for i := range n.Handlers {
+		if n.Handlers[i].Event == event {
+			return &n.Handlers[i]
+		}
+	}
+	return nil
+}
+
+func optionLabels(children []nir.View) []string {
+	labels := make([]string, 0, len(children))
+	for _, child := range children {
+		option, ok := child.(*nir.Element)
+		if !ok || option.Tag != "option" {
+			continue
+		}
+		labels = append(labels, emitChildrenInline(option.Children))
+	}
+	return labels
+}
+
 func quotedStringBody(s string) string {
 	quoted := strconv.Quote(s)
 	return quoted[1 : len(quoted)-1]
 }
 
-func emitRxExpr(e *nir.RxExpr) string {
-	return emitRxExprWithEventValue(e, "")
+type eventBindings map[string]string
+
+func (b eventBindings) ref(ref string) (string, bool) {
+	if !strings.HasPrefix(ref, "event.") {
+		return "", false
+	}
+	value := b[strings.TrimPrefix(ref, "event.")]
+	return value, value != ""
 }
 
-func emitRxExprWithEventValue(e *nir.RxExpr, eventValue string) string {
+func emitRxExpr(e *nir.RxExpr) string {
+	return emitRxExprWithEventBindings(e, nil)
+}
+
+func emitRxExprWithEventBindings(e *nir.RxExpr, bindings eventBindings) string {
 	if e == nil {
 		return ""
 	}
@@ -246,22 +365,22 @@ func emitRxExprWithEventValue(e *nir.RxExpr, eventValue string) string {
 		}
 		return e.Literal.Value
 	case "ref":
-		if eventValue != "" && e.Ref == "event.value" {
-			return eventValue
+		if value, ok := bindings.ref(e.Ref); ok {
+			return value
 		}
 		return e.Ref
 	case "binop":
 		if e.BinOp == nil {
 			return ""
 		}
-		return fmt.Sprintf("%s %s %s", emitRxExprWithEventValue(&e.BinOp.Left, eventValue), e.BinOp.Op, emitRxExprWithEventValue(&e.BinOp.Right, eventValue))
+		return fmt.Sprintf("%s %s %s", emitRxExprWithEventBindings(&e.BinOp.Left, bindings), e.BinOp.Op, emitRxExprWithEventBindings(&e.BinOp.Right, bindings))
 	case "call":
 		if e.Call == nil {
 			return ""
 		}
 		args := make([]string, len(e.Call.Args))
 		for i := range e.Call.Args {
-			args[i] = emitRxExprWithEventValue(&e.Call.Args[i], eventValue)
+			args[i] = emitRxExprWithEventBindings(&e.Call.Args[i], bindings)
 		}
 		return fmt.Sprintf("%s(%s)", e.Call.Callee, strings.Join(args, ", "))
 	default:
@@ -270,17 +389,17 @@ func emitRxExprWithEventValue(e *nir.RxExpr, eventValue string) string {
 }
 
 func emitRxBlock(b nir.RxBlock) string {
-	return emitRxBlockWithEventValue(b, "")
+	return emitRxBlockWithEventBindings(b, nil)
 }
 
-func emitRxBlockWithEventValue(b nir.RxBlock, eventValue string) string {
+func emitRxBlockWithEventBindings(b nir.RxBlock, bindings eventBindings) string {
 	parts := make([]string, 0, len(b.Stmts))
 	for _, s := range b.Stmts {
 		switch s.Kind {
 		case "expr":
-			parts = append(parts, emitRxExprWithEventValue(s.Expr, eventValue))
+			parts = append(parts, emitRxExprWithEventBindings(s.Expr, bindings))
 		case "signal_set":
-			parts = append(parts, fmt.Sprintf("%s = %s", s.Target, emitRxExprWithEventValue(s.Value, eventValue)))
+			parts = append(parts, fmt.Sprintf("%s = %s", s.Target, emitRxExprWithEventBindings(s.Value, bindings)))
 		}
 	}
 	return strings.Join(parts, "; ")

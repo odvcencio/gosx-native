@@ -106,6 +106,63 @@ func TestLowerGreeterCoversEventValueTextInput(t *testing.T) {
 	requireRefValue(t, input.Handlers[0].Body.Stmts[0].Value, "event.value")
 }
 
+func TestLowerFormControlsCoversNativeEventFields(t *testing.T) {
+	mod := lowerFixture(t, "form_controls.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "FormControls" {
+		t.Fatalf("component name = %q, want FormControls", component.Name)
+	}
+	if got, want := component.Props.Fields, []nir.PropField{
+		{Name: "bio", Type: "String"},
+		{Name: "enabled", Type: "Bool"},
+		{Name: "selectedIndex", Type: "Int"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	if got := len(component.Signals); got != 4 {
+		t.Fatalf("signals = %d, want 4", got)
+	}
+	assertSignal(t, component.Signals[0], "bio", "String", "props.bio")
+	assertSignal(t, component.Signals[1], "enabled", "Bool", "props.enabled")
+	if component.Signals[2].Name != "lastKey" || component.Signals[2].Type != "String" {
+		t.Fatalf("signal = %+v, want name=lastKey type=String", component.Signals[2])
+	}
+	requireLiteralValue(t, component.Signals[2].Init, "string", "")
+	assertSignal(t, component.Signals[3], "choice", "Int", "props.selectedIndex")
+
+	root := requireElement(t, component.Body, "vstack")
+	if got := len(root.Children); got != 8 {
+		t.Fatalf("root children = %d, want 8", got)
+	}
+
+	textarea := requireElement(t, root.Children[0], "textarea")
+	requireAttrRef(t, textarea, "value", "bio")
+	requireAttrLiteral(t, textarea, "placeholder", "string", "Bio")
+	requireHandlerValueRef(t, textarea, "input", "bio", "event.value")
+
+	checkbox := requireElement(t, root.Children[1], "checkbox")
+	requireAttrLiteral(t, checkbox, "type", "string", "checkbox")
+	requireAttrRef(t, checkbox, "checked", "enabled")
+	requireHandlerValueRef(t, checkbox, "change", "enabled", "event.checked")
+
+	keyInput := requireElement(t, root.Children[2], "textinput")
+	requireAttrRef(t, keyInput, "value", "lastKey")
+	requireAttrLiteral(t, keyInput, "placeholder", "string", "Press key")
+	requireHandlerValueRef(t, keyInput, "key", "lastKey", "event.key")
+
+	selectInput := requireElement(t, root.Children[3], "select")
+	requireAttrRef(t, selectInput, "selectedIndex", "choice")
+	requireHandlerValueRef(t, selectInput, "change", "choice", "event.selectedIndex")
+	if got := len(selectInput.Children); got != 2 {
+		t.Fatalf("select options = %d, want 2", got)
+	}
+	requireElement(t, selectInput.Children[0], "option")
+	requireElement(t, selectInput.Children[1], "option")
+}
+
 func TestLowerDerivedCoversComputedDecl(t *testing.T) {
 	mod := lowerFixture(t, "derived.gsx")
 	if got := len(mod.Components); got != 1 {
@@ -312,6 +369,12 @@ func requireHandlerEventTargets(t *testing.T, element *nir.Element, event string
 			t.Fatalf("stmt[%d] = %+v, want signal_set target=%s", i, stmt, target)
 		}
 	}
+}
+
+func requireHandlerValueRef(t *testing.T, element *nir.Element, event, target, ref string) {
+	t.Helper()
+	requireHandlerEventTargets(t, element, event, []string{target})
+	requireRefValue(t, element.Handlers[0].Body.Stmts[0].Value, ref)
 }
 
 func requireAttrRef(t *testing.T, element *nir.Element, name, ref string) {

@@ -11,5 +11,4 @@
 **Result:** GoSX fixtures now prove props, signals, handlers, event payloads, text inputs, computed values, conditional view nodes, and component references through the same shared NIR-to-native path.
 
 **Remaining proof after this slice:**
-- Native textarea/multiline input and non-string event fields (`checked`, `key`, `selectedIndex`).
 - More expression coverage: ternary, string helpers, and conversions.

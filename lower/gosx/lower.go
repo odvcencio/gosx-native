@@ -222,7 +222,7 @@ func (l *lowerer) lowerViewWithScope(id gosxir.NodeID, scope *gosxir.ExprScope) 
 
 func (l *lowerer) lowerElementView(node *gosxir.Node) (nir.View, error) {
 	element := &nir.Element{
-		Tag:  nativeTag(node.Tag),
+		Tag:  nativeTagForElement(node.Tag, node.Attrs),
 		Span: irSpan(node.Span),
 	}
 	for _, attr := range node.Attrs {
@@ -809,11 +809,24 @@ func nativeTag(tag string) string {
 		return "vstack"
 	case "span", "p", "label", "text":
 		return "text"
+	case "textarea":
+		return "textarea"
+	case "select":
+		return "select"
+	case "option":
+		return "option"
 	case "input":
 		return "textinput"
 	default:
 		return lowerFirst(tag)
 	}
+}
+
+func nativeTagForElement(tag string, attrs []gosxir.Attr) string {
+	if tag == "input" && staticAttrValue(attrs, "type") == "checkbox" {
+		return "checkbox"
+	}
+	return nativeTag(tag)
 }
 
 func isConditionalComponent(tag string) bool {
@@ -836,7 +849,7 @@ func isLoopComponent(tag string) bool {
 
 func nativeAttr(name string) bool {
 	switch name {
-	case "placeholder", "type", "value":
+	case "checked", "placeholder", "selectedIndex", "type", "value":
 		return true
 	default:
 		return false

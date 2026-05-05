@@ -36,6 +36,8 @@ demo:
 	go run ./cmd/gsxnative emit android testdata/corpus/go/component_ref.gsx > /tmp/Profile.gosx.kt
 	go run ./cmd/gsxnative emit ios testdata/corpus/go/loop.gsx > /tmp/Roster.gosx.swift
 	go run ./cmd/gsxnative emit android testdata/corpus/go/loop.gsx > /tmp/Roster.gosx.kt
+	go run ./cmd/gsxnative emit ios testdata/corpus/go/form_controls.gsx > /tmp/FormControls.gosx.swift
+	go run ./cmd/gsxnative emit android testdata/corpus/go/form_controls.gsx > /tmp/FormControls.gosx.kt
 	@echo "Generated /tmp/Counter.swift"
 	@echo "Generated /tmp/Counter.kt"
 	@echo "Generated /tmp/Counter.gosx.swift"
@@ -52,6 +54,8 @@ demo:
 	@echo "Generated /tmp/Profile.gosx.kt"
 	@echo "Generated /tmp/Roster.gosx.swift"
 	@echo "Generated /tmp/Roster.gosx.kt"
+	@echo "Generated /tmp/FormControls.gosx.swift"
+	@echo "Generated /tmp/FormControls.gosx.kt"
 
 lint:
 	go vet ./...
