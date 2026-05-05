@@ -15,4 +15,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "CounterAndroid"
-include(":app")
+include(":app", ":gsx-nativekit")
+project(":gsx-nativekit").projectDir = file("../../runtime/android")

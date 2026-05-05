@@ -1,4 +1,4 @@
-.PHONY: test smoke android-smoke demo lint
+.PHONY: test smoke android-smoke android-connected demo lint
 
 test:
 	go test ./...
@@ -8,7 +8,11 @@ smoke:
 
 android-smoke:
 	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
-	cd examples/counter-android && gradle --no-daemon :app:assembleDebug
+	cd examples/counter-android && gradle --no-daemon :gsx-nativekit:assembleRelease :app:assembleDebug
+
+android-connected:
+	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
+	cd examples/counter-android && gradle --no-daemon :app:connectedDebugAndroidTest
 
 demo:
 	@echo "Running M1 vertical slice demo..."

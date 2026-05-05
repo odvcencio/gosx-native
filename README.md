@@ -10,8 +10,9 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 
 - iOS smoke: `make smoke`
 - Android assemble smoke: `make android-smoke`
+- Android emulator interaction smoke, with an emulator already booted: `make android-connected`
 
-The Android smoke expects Gradle plus Android SDK platform 36/build-tools 36.0.0. CI pins Gradle 9.4.1, Android Gradle Plugin 9.2.0, Kotlin/Compose compiler 2.3.21, Compose BOM 2026.04.01, and Activity Compose 1.13.0.
+The Android smoke expects Gradle plus Android SDK platform 36/build-tools 36.0.0. CI pins Gradle 9.4.1, Android Gradle Plugin 9.2.0, Kotlin/Compose compiler 2.3.21, Compose BOM 2026.04.01, and Activity Compose 1.13.0. CI also builds the Android runtime as an AAR and runs the Counter UI test on an API 35 headless emulator.
 
 ## License
 

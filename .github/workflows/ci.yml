@@ -9,20 +9,21 @@ jobs:
   unit-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: gosx-native
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: odvcencio/gosx
           path: gosx
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: odvcencio/gotreesitter
           path: gotreesitter
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"
+          cache-dependency-path: gosx-native/go.mod
       - name: Test
         working-directory: gosx-native
         run: go test -race ./...
@@ -43,20 +44,21 @@ jobs:
     runs-on: macos-latest
     needs: unit-linux
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: gosx-native
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: odvcencio/gosx
           path: gosx
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: odvcencio/gotreesitter
           path: gotreesitter
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"
+          cache-dependency-path: gosx-native/go.mod
       - name: Install xcodegen
         run: brew install xcodegen
       - name: E2E
@@ -67,20 +69,21 @@ jobs:
     runs-on: ubuntu-latest
     needs: unit-linux
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: gosx-native
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: odvcencio/gosx
           path: gosx
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: odvcencio/gotreesitter
           path: gotreesitter
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"
+          cache-dependency-path: gosx-native/go.mod
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -93,6 +96,44 @@ jobs:
         run: |
           go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
           git diff --exit-code -- examples/counter-android/app/src/main/kotlin/generated/Counter.kt
-      - name: Assemble Android Counter demo
+      - name: Build runtime AAR and Counter APK
         working-directory: gosx-native/examples/counter-android
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :gsx-nativekit:assembleRelease :app:assembleDebug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install Android emulator image
+        run: |
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null
+          "$sdkmanager" --install "emulator" "system-images;android-35;google_apis;x86_64"
+      - name: Run Android counter UI test
+        working-directory: gosx-native/examples/counter-android
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+
+          avdmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager"
+          emulator="${ANDROID_HOME}/emulator/emulator"
+          adb="${ANDROID_HOME}/platform-tools/adb"
+
+          echo "no" | "$avdmanager" create avd --force --name gosx_counter_api_35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_6"
+          "$emulator" -avd gosx_counter_api_35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics &
+          emulator_pid=$!
+          trap '"$adb" emu kill || kill "$emulator_pid" || true' EXIT
+
+          "$adb" wait-for-device
+          boot_completed=""
+          until [ "$boot_completed" = "1" ]; do
+            boot_completed=$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            sleep 2
+          done
+
+          "$adb" shell settings put global window_animation_scale 0 || true
+          "$adb" shell settings put global transition_animation_scale 0 || true
+          "$adb" shell settings put global animator_duration_scale 0 || true
+          "$adb" shell input keyevent 82 || true
+
+          gradle --no-daemon :app:connectedDebugAndroidTest

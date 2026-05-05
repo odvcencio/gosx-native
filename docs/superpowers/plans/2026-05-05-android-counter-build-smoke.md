@@ -5,8 +5,8 @@
 **Scope:**
 - Minimal Android app under `examples/counter-android`.
 - Generated `Counter.kt` checked in under the app's `generated` package.
-- Shared runtime sources from `runtime/android` compiled directly into the demo app.
-- CI job regenerates `Counter.kt`, verifies it is checked in without drift, then runs `gradle :app:assembleDebug`.
+- Android runtime packaged through a `:gsx-nativekit` Android library module.
+- CI job regenerates `Counter.kt`, verifies it is checked in without drift, builds the runtime AAR and app APK, then runs the Counter interaction test on a headless Android emulator.
 
 **Pinned Android toolchain:**
 - Android Gradle Plugin 9.2.0.
@@ -19,5 +19,4 @@
 - Android SDK platform 36, build tools 36.0.0.
 
 **Remaining proof after this smoke:**
-- Android emulator runtime interaction test that taps the generated `+` and `-` buttons and asserts the count text changes.
-- Packaging the runtime as an AAR instead of compiling runtime source directly into the demo app.
+- Expand Android runtime tests beyond Counter into a reusable generated-widget interaction corpus.
