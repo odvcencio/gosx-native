@@ -176,6 +176,9 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 		if isConditionalComponent(node.Tag) {
 			return l.lowerConditionalView(node)
 		}
+		if isLoopComponent(node.Tag) {
+			return l.lowerLoopView(node)
+		}
 		return l.lowerComponentRefView(node)
 	case gosxir.NodeElement:
 		return l.lowerElementView(node)
@@ -206,6 +209,15 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 	default:
 		return nil, fmt.Errorf("unsupported GoSX node kind %d", node.Kind)
 	}
+}
+
+func (l *lowerer) lowerViewWithScope(id gosxir.NodeID, scope *gosxir.ExprScope) (nir.View, error) {
+	prev := l.scope
+	l.scope = scope
+	defer func() {
+		l.scope = prev
+	}()
+	return l.lowerView(id)
 }
 
 func (l *lowerer) lowerElementView(node *gosxir.Node) (nir.View, error) {
@@ -322,6 +334,47 @@ func (l *lowerer) lowerConditionalView(node *gosxir.Node) (nir.View, error) {
 	return conditional, nil
 }
 
+func (l *lowerer) lowerLoopView(node *gosxir.Node) (nir.View, error) {
+	itemsSource, ok := viewAttrSource(node.Attrs, false, "of", "each", "items")
+	if !ok || strings.TrimSpace(itemsSource) == "" {
+		return nil, fmt.Errorf("%s requires an of/each/items attribute", node.Tag)
+	}
+	items, err := l.lowerRxExpr(itemsSource)
+	if err != nil {
+		return nil, fmt.Errorf("items %q: %w", itemsSource, err)
+	}
+
+	itemName := staticAttrValue(node.Attrs, "as", "item")
+	if itemName == "" {
+		itemName = "item"
+	}
+	indexName := staticAttrValue(node.Attrs, "index")
+	loop := &nir.Loop{
+		Items:     *items,
+		ItemName:  itemName,
+		IndexName: indexName,
+		Span:      irSpan(node.Span),
+	}
+
+	childScope := cloneExprScope(l.scope)
+	childScope.Props[itemName] = true
+	childScope.Props["_item"] = true
+	if indexName != "" {
+		childScope.Props[indexName] = true
+	}
+	childScope.Props["_index"] = true
+	for _, childID := range node.Children {
+		child, err := l.lowerViewWithScope(childID, childScope)
+		if err != nil {
+			return nil, err
+		}
+		if child != nil {
+			loop.Body = append(loop.Body, child)
+		}
+	}
+	return loop, nil
+}
+
 func viewAttrSource(attrs []gosxir.Attr, quoteStatic bool, names ...string) (string, bool) {
 	for _, attr := range attrs {
 		if !stringIn(attr.Name, names) {
@@ -342,6 +395,50 @@ func viewAttrSource(attrs []gosxir.Attr, quoteStatic bool, names ...string) (str
 		}
 	}
 	return "", false
+}
+
+func staticAttrValue(attrs []gosxir.Attr, names ...string) string {
+	for _, attr := range attrs {
+		if attr.Kind == gosxir.AttrStatic && stringIn(attr.Name, names) {
+			return attr.Value
+		}
+	}
+	return ""
+}
+
+func cloneExprScope(scope *gosxir.ExprScope) *gosxir.ExprScope {
+	if scope == nil {
+		return &gosxir.ExprScope{
+			Signals:       make(map[string]bool),
+			SignalAliases: make(map[string]string),
+			Props:         make(map[string]bool),
+			Handlers:      make(map[string]bool),
+			EventFields:   make(map[string]bool),
+		}
+	}
+	next := &gosxir.ExprScope{
+		Signals:       make(map[string]bool, len(scope.Signals)),
+		SignalAliases: make(map[string]string, len(scope.SignalAliases)),
+		Props:         make(map[string]bool, len(scope.Props)),
+		Handlers:      make(map[string]bool, len(scope.Handlers)),
+		EventFields:   make(map[string]bool, len(scope.EventFields)),
+	}
+	for key, value := range scope.Signals {
+		next.Signals[key] = value
+	}
+	for key, value := range scope.SignalAliases {
+		next.SignalAliases[key] = value
+	}
+	for key, value := range scope.Props {
+		next.Props[key] = value
+	}
+	for key, value := range scope.Handlers {
+		next.Handlers[key] = value
+	}
+	for key, value := range scope.EventFields {
+		next.EventFields[key] = value
+	}
+	return next
 }
 
 func stringIn(value string, choices []string) bool {
@@ -728,6 +825,15 @@ func isConditionalComponent(tag string) bool {
 	}
 }
 
+func isLoopComponent(tag string) bool {
+	switch tag {
+	case "Each", "For":
+		return true
+	default:
+		return false
+	}
+}
+
 func nativeAttr(name string) bool {
 	switch name {
 	case "placeholder", "type", "value":
@@ -770,6 +876,13 @@ func nativeTypeFromHint(hint string) string {
 
 func nativeTypeFromGoType(typ string) string {
 	typ = strings.TrimSpace(strings.TrimPrefix(typ, "*"))
+	if strings.HasPrefix(typ, "[]") {
+		elem := nativeTypeFromGoType(strings.TrimSpace(strings.TrimPrefix(typ, "[]")))
+		if elem == "" {
+			return typ
+		}
+		return "[" + elem + "]"
+	}
 	switch typ {
 	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
 		return "Int"

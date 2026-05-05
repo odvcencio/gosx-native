@@ -219,6 +219,32 @@ func TestLowerComponentRefCoversNestedComponentCall(t *testing.T) {
 	requireRefValue(t, &ref.Props[0].Value, "props.name")
 }
 
+func TestLowerLoopCoversEachViewNode(t *testing.T) {
+	mod := lowerFixture(t, "loop.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "Roster" {
+		t.Fatalf("component name = %q, want Roster", component.Name)
+	}
+	if got, want := component.Props.Fields, []nir.PropField{
+		{Name: "items", Type: "[String]"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	root := requireElement(t, component.Body, "vstack")
+	if got := len(root.Children); got != 1 {
+		t.Fatalf("root children = %d, want 1", got)
+	}
+	loop := requireLoop(t, root.Children[0], "props.items", "item")
+	if got := len(loop.Body); got != 1 {
+		t.Fatalf("loop body children = %d, want 1", got)
+	}
+	text := requireElement(t, loop.Body[0], "text")
+	requireExprHoleRef(t, text.Children[0], "item")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))
@@ -340,6 +366,19 @@ func requireComponentRef(t *testing.T, view nir.View, name string) *nir.Componen
 	return ref
 }
 
+func requireLoop(t *testing.T, view nir.View, itemsRef, itemName string) *nir.Loop {
+	t.Helper()
+	loop, ok := view.(*nir.Loop)
+	if !ok {
+		t.Fatalf("view = %T, want *nir.Loop", view)
+	}
+	requireRefValue(t, &loop.Items, itemsRef)
+	if loop.ItemName != itemName {
+		t.Fatalf("loop item = %q, want %q", loop.ItemName, itemName)
+	}
+	return loop
+}
+
 func requireRefValue(t *testing.T, expr *nir.RxExpr, ref string) {
 	t.Helper()
 	if expr == nil || expr.Kind != "ref" || expr.Ref != ref {
@@ -415,6 +454,15 @@ func normalizeView(view nir.View) {
 			normalizeRxExpr(&node.Props[i].Value)
 		}
 		for _, child := range node.Children {
+			normalizeView(child)
+		}
+	case *nir.Loop:
+		node.Span = nir.Span{}
+		normalizeRxExpr(&node.Items)
+		for _, child := range node.Body {
+			normalizeView(child)
+		}
+		for _, child := range node.Empty {
 			normalizeView(child)
 		}
 	}

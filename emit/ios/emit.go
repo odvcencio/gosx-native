@@ -96,6 +96,8 @@ func emitView(v nir.View, indent int) string {
 		return emitConditional(n, indent)
 	case *nir.ComponentRef:
 		return pad + emitComponentRef(n)
+	case *nir.Loop:
+		return emitLoop(n, indent)
 	default:
 		return pad + "/* unsupported view */"
 	}
@@ -107,6 +109,28 @@ func emitComponentRef(n *nir.ComponentRef) string {
 		props[i] = fmt.Sprintf("%s: %s", n.Props[i].Name, emitRxExpr(&n.Props[i].Value))
 	}
 	return fmt.Sprintf("%s(props: %s.Props(%s))", n.Name, n.Name, strings.Join(props, ", "))
+}
+
+func emitLoop(n *nir.Loop, indent int) string {
+	pad := strings.Repeat("    ", indent)
+	itemName := n.ItemName
+	if itemName == "" {
+		itemName = "item"
+	}
+	var sb strings.Builder
+	sb.WriteString(pad)
+	sb.WriteString("ForEach(")
+	sb.WriteString(emitRxExpr(&n.Items))
+	sb.WriteString(", id: \\.self) { ")
+	sb.WriteString(itemName)
+	sb.WriteString(" in\n")
+	for _, child := range n.Body {
+		sb.WriteString(emitView(child, indent+1))
+		sb.WriteByte('\n')
+	}
+	sb.WriteString(pad)
+	sb.WriteString("}")
+	return sb.String()
 }
 
 func emitConditional(n *nir.Conditional, indent int) string {

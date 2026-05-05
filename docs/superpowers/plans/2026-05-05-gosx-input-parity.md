@@ -13,5 +13,4 @@
 
 **Remaining proof after this slice:**
 - Computed values via a NIR `ComputedDecl`.
-- Loop view nodes.
 - Native textarea/multiline input and non-string event fields (`checked`, `key`, `selectedIndex`).

@@ -12,4 +12,3 @@
 **Remaining proof after this slice:**
 - Event payload expressions (`event.value`) and native text inputs.
 - Computed values via a NIR `ComputedDecl`.
-- Loop view nodes.

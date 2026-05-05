@@ -76,6 +76,17 @@ func viewHasTag(v nir.View, tag string) bool {
 				return true
 			}
 		}
+	case *nir.Loop:
+		for _, child := range n.Body {
+			if viewHasTag(child, tag) {
+				return true
+			}
+		}
+		for _, child := range n.Empty {
+			if viewHasTag(child, tag) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -159,6 +170,8 @@ func emitView(v nir.View, indent int) string {
 		return emitConditional(n, indent)
 	case *nir.ComponentRef:
 		return pad + emitComponentRef(n)
+	case *nir.Loop:
+		return emitLoop(n, indent)
 	default:
 		return pad + "/* unsupported view */"
 	}
@@ -170,6 +183,27 @@ func emitComponentRef(n *nir.ComponentRef) string {
 		props[i] = fmt.Sprintf("%s = %s", n.Props[i].Name, emitRxExpr(&n.Props[i].Value))
 	}
 	return fmt.Sprintf("%s(props = %sProps(%s))", n.Name, n.Name, strings.Join(props, ", "))
+}
+
+func emitLoop(n *nir.Loop, indent int) string {
+	pad := strings.Repeat("    ", indent)
+	itemName := n.ItemName
+	if itemName == "" {
+		itemName = "item"
+	}
+	var sb strings.Builder
+	sb.WriteString(pad)
+	sb.WriteString(emitRxExpr(&n.Items))
+	sb.WriteString(".forEach { ")
+	sb.WriteString(itemName)
+	sb.WriteString(" ->\n")
+	for _, child := range n.Body {
+		sb.WriteString(emitView(child, indent+1))
+		sb.WriteByte('\n')
+	}
+	sb.WriteString(pad)
+	sb.WriteString("}")
+	return sb.String()
 }
 
 func emitConditional(n *nir.Conditional, indent int) string {
@@ -325,6 +359,10 @@ func emitRxBlockWithEventValue(b nir.RxBlock, eventValue string) string {
 }
 
 func kotlinType(swiftType string) string {
+	if strings.HasPrefix(swiftType, "[") && strings.HasSuffix(swiftType, "]") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(swiftType, "["), "]")
+		return "List<" + kotlinType(inner) + ">"
+	}
 	switch swiftType {
 	case "Bool":
 		return "Boolean"
