@@ -6,7 +6,7 @@
 - Minimal Android app under `examples/counter-android`.
 - Generated `Counter.kt` checked in under the app's `generated` package.
 - Android runtime packaged through a `:gsx-nativekit` Android library module.
-- CI job regenerates `Counter.kt`, verifies it is checked in without drift, builds the runtime AAR and app APK, then runs the Counter interaction test on a headless Android emulator.
+- CI job regenerates `Counter.kt`, verifies it is checked in without drift, builds the runtime AAR and app APK, then runs the Counter interaction test on a Gradle-managed ATD emulator.
 
 **Pinned Android toolchain:**
 - Android Gradle Plugin 9.2.0.

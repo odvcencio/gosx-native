@@ -20,6 +20,18 @@ android {
         compose = true
     }
 
+    testOptions {
+        managedDevices {
+            localDevices {
+                create("ciApi30") {
+                    device = "Pixel 2"
+                    apiLevel = 30
+                    systemImageSource = "aosp-atd"
+                }
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -117,36 +117,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install Android emulator image
-        run: |
-          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses >/dev/null
-          "$sdkmanager" --install "emulator" "system-images;android-35;google_apis;x86_64"
       - name: Run Android counter UI test
         working-directory: gosx-native/examples/counter-android
         timeout-minutes: 20
-        run: |
-          set -euo pipefail
-
-          avdmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager"
-          emulator="${ANDROID_HOME}/emulator/emulator"
-          adb="${ANDROID_HOME}/platform-tools/adb"
-
-          echo "no" | "$avdmanager" create avd --force --name gosx_counter_api_35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_6"
-          "$emulator" -avd gosx_counter_api_35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics &
-          emulator_pid=$!
-          trap '"$adb" emu kill || kill "$emulator_pid" || true' EXIT
-
-          "$adb" wait-for-device
-          boot_completed=""
-          until [ "$boot_completed" = "1" ]; do
-            boot_completed=$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            sleep 2
-          done
-
-          "$adb" shell settings put global window_animation_scale 0 || true
-          "$adb" shell settings put global transition_animation_scale 0 || true
-          "$adb" shell settings put global animator_duration_scale 0 || true
-          "$adb" shell input keyevent 82 || true
-
-          gradle --no-daemon :app:connectedDebugAndroidTest
+        run: gradle --no-daemon :app:ciApi30DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
