@@ -56,5 +56,5 @@ func simName() string {
 	if n := os.Getenv("IOS_SIMULATOR_NAME"); n != "" {
 		return n
 	}
-	return "iPhone 15"
+	return "iPhone 16"
 }
