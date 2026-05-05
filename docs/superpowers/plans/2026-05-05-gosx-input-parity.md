@@ -13,4 +13,4 @@
 
 **Remaining proof after this slice:**
 - Computed values via a NIR `ComputedDecl`.
-- More expression coverage: ternary, string helpers, and conversions.
+- Broader expression coverage: ternary, string helpers, and conversions.

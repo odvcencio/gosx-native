@@ -201,6 +201,71 @@ func TestLowerDerivedCoversComputedDecl(t *testing.T) {
 	requireBinOpValue(t, button.Handlers[0].Body.Stmts[0].Value, "+")
 }
 
+func TestLowerExpressionsCoversAdvancedRxExpr(t *testing.T) {
+	mod := lowerFixture(t, "expressions.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "Expressions" {
+		t.Fatalf("component name = %q, want Expressions", component.Name)
+	}
+	if got, want := component.Props.Fields, []nir.PropField{
+		{Name: "title", Type: "String"},
+		{Name: "count", Type: "Int"},
+		{Name: "price", Type: "String"},
+		{Name: "tags", Type: "[String]"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	if got := len(component.Signals); got != 3 {
+		t.Fatalf("signals = %d, want 3", got)
+	}
+	assertSignal(t, component.Signals[0], "title", "String", "props.title")
+	assertSignal(t, component.Signals[1], "count", "Int", "props.count")
+	if component.Signals[2].Name != "status" || component.Signals[2].Type != "String" {
+		t.Fatalf("signal = %+v, want name=status type=String", component.Signals[2])
+	}
+	requireLiteralValue(t, component.Signals[2].Init, "string", "")
+
+	if got := len(component.Computeds); got != 8 {
+		t.Fatalf("computeds = %d, want 8", got)
+	}
+	normalized := component.Computeds[0]
+	if normalized.Name != "normalized" || normalized.Type != "String" {
+		t.Fatalf("computed = %+v, want normalized String", normalized)
+	}
+	lowerCall := requireCallValue(t, normalized.Body, "lower")
+	replaceCall := requireCallValue(t, &lowerCall.Args[0], "replace")
+	requireCallValue(t, &replaceCall.Args[0], "trim")
+
+	requireCallValue(t, component.Computeds[1].Body, "toString")
+	requireBinOpValue(t, component.Computeds[2].Body, "+")
+	requireCallValue(t, &component.Computeds[2].Body.BinOp.Left, "toInt")
+	requireCallValue(t, component.Computeds[3].Body, "toFloat")
+	joinCall := requireCallValue(t, component.Computeds[4].Body, "join")
+	requireRefValue(t, &joinCall.Args[0], "props.tags")
+	requireLiteralValue(t, &joinCall.Args[1], "string", ",")
+	requireCallValue(t, component.Computeds[5].Body, "startsWith")
+	requireCallValue(t, component.Computeds[6].Body, "contains")
+	requireCallValue(t, component.Computeds[7].Body, "len")
+
+	root := requireElement(t, component.Body, "vstack")
+	if got := len(root.Children); got != 10 {
+		t.Fatalf("root children = %d, want 10", got)
+	}
+	button := requireElement(t, root.Children[0], "button")
+	requireHandlerEventTargets(t, button, "tap", []string{"status"})
+	cond := requireCondValue(t, button.Handlers[0].Body.Stmts[0].Value)
+	requireBinOpValue(t, &cond.Condition, ">")
+	requireCallValue(t, &cond.Then, "upper")
+	requireRefValue(t, &cond.Else, "normalized")
+
+	requireExprHoleRef(t, requireElement(t, root.Children[7], "text").Children[0], "hasGo")
+	requireExprHoleRef(t, requireElement(t, root.Children[8], "text").Children[0], "hasSX")
+	requireExprHoleRef(t, requireElement(t, root.Children[9], "text").Children[0], "tagCount")
+}
+
 func TestLowerConditionalCoversIfViewNode(t *testing.T) {
 	mod := lowerFixture(t, "conditional.gsx")
 	if got := len(mod.Components); got != 1 {
@@ -400,11 +465,16 @@ func requireAttr(t *testing.T, element *nir.Element, name string) *nir.RxExpr {
 
 func requireExprHoleRef(t *testing.T, view nir.View, ref string) {
 	t.Helper()
+	requireRefValue(t, requireExprHole(t, view), ref)
+}
+
+func requireExprHole(t *testing.T, view nir.View) *nir.RxExpr {
+	t.Helper()
 	hole, ok := view.(*nir.ExprHole)
 	if !ok {
 		t.Fatalf("view = %T, want *nir.ExprHole", view)
 	}
-	requireRefValue(t, &hole.Expr, ref)
+	return &hole.Expr
 }
 
 func requireConditional(t *testing.T, view nir.View, conditionRef string) *nir.Conditional {
@@ -454,6 +524,22 @@ func requireBinOpValue(t *testing.T, expr *nir.RxExpr, op string) {
 	if expr == nil || expr.Kind != "binop" || expr.BinOp == nil || expr.BinOp.Op != op {
 		t.Fatalf("expr = %+v, want binop %q", expr, op)
 	}
+}
+
+func requireCondValue(t *testing.T, expr *nir.RxExpr) *nir.Cond {
+	t.Helper()
+	if expr == nil || expr.Kind != "cond" || expr.Cond == nil {
+		t.Fatalf("expr = %+v, want conditional expression", expr)
+	}
+	return expr.Cond
+}
+
+func requireCallValue(t *testing.T, expr *nir.RxExpr, callee string) *nir.Call {
+	t.Helper()
+	if expr == nil || expr.Kind != "call" || expr.Call == nil || expr.Call.Callee != callee {
+		t.Fatalf("expr = %+v, want call %q", expr, callee)
+	}
+	return expr.Call
 }
 
 func requireLiteralValue(t *testing.T, expr *nir.RxExpr, typ, value string) {
@@ -544,6 +630,11 @@ func normalizeRxExpr(expr *nir.RxExpr) {
 	if expr.BinOp != nil {
 		normalizeRxExpr(&expr.BinOp.Left)
 		normalizeRxExpr(&expr.BinOp.Right)
+	}
+	if expr.Cond != nil {
+		normalizeRxExpr(&expr.Cond.Condition)
+		normalizeRxExpr(&expr.Cond.Then)
+		normalizeRxExpr(&expr.Cond.Else)
 	}
 	if expr.Call != nil {
 		for i := range expr.Call.Args {

@@ -374,17 +374,87 @@ func emitRxExprWithEventBindings(e *nir.RxExpr, bindings eventBindings) string {
 			return ""
 		}
 		return fmt.Sprintf("%s %s %s", emitRxExprWithEventBindings(&e.BinOp.Left, bindings), e.BinOp.Op, emitRxExprWithEventBindings(&e.BinOp.Right, bindings))
+	case "cond":
+		if e.Cond == nil {
+			return ""
+		}
+		return fmt.Sprintf(
+			"(%s ? %s : %s)",
+			emitRxExprWithEventBindings(&e.Cond.Condition, bindings),
+			emitRxExprWithEventBindings(&e.Cond.Then, bindings),
+			emitRxExprWithEventBindings(&e.Cond.Else, bindings),
+		)
 	case "call":
 		if e.Call == nil {
 			return ""
 		}
-		args := make([]string, len(e.Call.Args))
-		for i := range e.Call.Args {
-			args[i] = emitRxExprWithEventBindings(&e.Call.Args[i], bindings)
-		}
-		return fmt.Sprintf("%s(%s)", e.Call.Callee, strings.Join(args, ", "))
+		return emitCall(e.Call, bindings)
 	default:
 		return ""
+	}
+}
+
+func emitCall(c *nir.Call, bindings eventBindings) string {
+	args := make([]string, len(c.Args))
+	for i := range c.Args {
+		args[i] = emitRxExprWithEventBindings(&c.Args[i], bindings)
+	}
+	if len(args) == 0 {
+		return c.Callee + "()"
+	}
+	receiver := args[0]
+	switch c.Callee {
+	case "len":
+		return receiver + ".count"
+	case "upper":
+		return receiver + ".uppercased()"
+	case "lower":
+		return receiver + ".lowercased()"
+	case "trim":
+		return receiver + ".trimmingCharacters(in: .whitespacesAndNewlines)"
+	case "split":
+		if len(args) != 2 {
+			return receiver
+		}
+		return receiver + ".components(separatedBy: " + args[1] + ")"
+	case "join":
+		if len(args) != 2 {
+			return receiver
+		}
+		return receiver + ".joined(separator: " + args[1] + ")"
+	case "replace":
+		if len(args) != 3 {
+			return receiver
+		}
+		return receiver + ".replacingOccurrences(of: " + args[1] + ", with: " + args[2] + ")"
+	case "substring":
+		if len(args) != 3 {
+			return receiver
+		}
+		return "String(" + receiver + ".dropFirst(" + args[1] + ").prefix(" + args[2] + " - " + args[1] + "))"
+	case "startsWith":
+		if len(args) != 2 {
+			return receiver
+		}
+		return receiver + ".hasPrefix(" + args[1] + ")"
+	case "endsWith":
+		if len(args) != 2 {
+			return receiver
+		}
+		return receiver + ".hasSuffix(" + args[1] + ")"
+	case "contains":
+		if len(args) != 2 {
+			return receiver
+		}
+		return receiver + ".contains(" + args[1] + ")"
+	case "toString":
+		return "String(" + receiver + ")"
+	case "toInt":
+		return "(Int(" + receiver + ") ?? 0)"
+	case "toFloat":
+		return "(Double(" + receiver + ") ?? 0)"
+	default:
+		return fmt.Sprintf("%s(%s)", c.Callee, strings.Join(args, ", "))
 	}
 }
 

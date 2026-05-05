@@ -12,4 +12,4 @@
 **Result:** GoSX fixtures now prove props, signals, event payloads, handlers, text inputs, and computed values through the same NIR-to-native path.
 
 **Remaining proof after this slice:**
-- More expression coverage: ternary, string helpers, and conversions.
+- Broader expression coverage: ternary, string helpers, and conversions.

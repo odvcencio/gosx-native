@@ -569,7 +569,7 @@ func (l *lowerer) rxExprFromProgram(exprs []islandprogram.Expr, id islandprogram
 		return &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "bool", Value: expr.Value}}, nil
 	case islandprogram.OpAdd, islandprogram.OpSub, islandprogram.OpMul, islandprogram.OpDiv, islandprogram.OpMod,
 		islandprogram.OpEq, islandprogram.OpNeq, islandprogram.OpLt, islandprogram.OpGt, islandprogram.OpLte, islandprogram.OpGte,
-		islandprogram.OpAnd, islandprogram.OpOr:
+		islandprogram.OpAnd, islandprogram.OpOr, islandprogram.OpConcat:
 		if len(expr.Operands) != 2 {
 			return nil, fmt.Errorf("binary op %d expects two operands", expr.Op)
 		}
@@ -585,6 +585,26 @@ func (l *lowerer) rxExprFromProgram(exprs []islandprogram.Expr, id islandprogram
 			Kind:  "binop",
 			BinOp: &nir.BinOp{Op: binOpText(expr.Op), Left: *left, Right: *right},
 		}, nil
+	case islandprogram.OpCond:
+		if len(expr.Operands) != 3 {
+			return nil, fmt.Errorf("conditional expression expects three operands")
+		}
+		condition, err := l.rxExprFromProgram(exprs, expr.Operands[0])
+		if err != nil {
+			return nil, err
+		}
+		thenExpr, err := l.rxExprFromProgram(exprs, expr.Operands[1])
+		if err != nil {
+			return nil, err
+		}
+		elseExpr, err := l.rxExprFromProgram(exprs, expr.Operands[2])
+		if err != nil {
+			return nil, err
+		}
+		return &nir.RxExpr{
+			Kind: "cond",
+			Cond: &nir.Cond{Condition: *condition, Then: *thenExpr, Else: *elseExpr},
+		}, nil
 	case islandprogram.OpCall:
 		call := &nir.Call{Callee: expr.Value}
 		for _, operand := range expr.Operands {
@@ -595,9 +615,35 @@ func (l *lowerer) rxExprFromProgram(exprs []islandprogram.Expr, id islandprogram
 			call.Args = append(call.Args, *arg)
 		}
 		return &nir.RxExpr{Kind: "call", Call: call}, nil
+	case islandprogram.OpLen, islandprogram.OpToUpper, islandprogram.OpToLower, islandprogram.OpTrim,
+		islandprogram.OpSplit, islandprogram.OpJoin, islandprogram.OpReplace, islandprogram.OpSubstring,
+		islandprogram.OpStartsWith, islandprogram.OpEndsWith, islandprogram.OpContains,
+		islandprogram.OpToString, islandprogram.OpToInt, islandprogram.OpToFloat:
+		return l.callExprFromProgram(exprs, expr)
 	default:
 		return nil, fmt.Errorf("unsupported GoSX expression opcode %d", expr.Op)
 	}
+}
+
+func (l *lowerer) callExprFromProgram(exprs []islandprogram.Expr, expr islandprogram.Expr) (*nir.RxExpr, error) {
+	call := &nir.Call{Callee: portableCallName(expr.Op)}
+	if call.Callee == "" {
+		return nil, fmt.Errorf("unsupported GoSX call opcode %d", expr.Op)
+	}
+	for _, operand := range expr.Operands {
+		arg, err := l.rxExprFromProgram(exprs, operand)
+		if err != nil {
+			return nil, err
+		}
+		call.Args = append(call.Args, *arg)
+	}
+	if expr.Value != "" || ((expr.Op == islandprogram.OpSplit || expr.Op == islandprogram.OpJoin) && len(expr.Operands) == 1) {
+		call.Args = append(call.Args, nir.RxExpr{
+			Kind:    "literal",
+			Literal: &nir.Literal{Type: "string", Value: expr.Value},
+		})
+	}
+	return &nir.RxExpr{Kind: "call", Call: call}, nil
 }
 
 func (l *lowerer) refFromProgram(exprs []islandprogram.Expr, id islandprogram.ExprID) (string, bool) {
@@ -656,6 +702,28 @@ func (l *lowerer) inferExprType(expr *nir.RxExpr) string {
 			return numericType(left, right)
 		case "-", "*", "/", "%":
 			return numericType(left, right)
+		}
+	}
+	if expr.Kind == "cond" && expr.Cond != nil {
+		thenType := l.inferExprType(&expr.Cond.Then)
+		elseType := l.inferExprType(&expr.Cond.Else)
+		if thenType == elseType {
+			return thenType
+		}
+		return numericType(thenType, elseType)
+	}
+	if expr.Kind == "call" && expr.Call != nil {
+		switch expr.Call.Callee {
+		case "contains", "startsWith", "endsWith":
+			return "Bool"
+		case "len", "toInt":
+			return "Int"
+		case "toFloat":
+			return "Double"
+		case "split":
+			return "[String]"
+		case "upper", "lower", "trim", "replace", "substring", "join", "toString":
+			return "String"
 		}
 	}
 	return ""
@@ -953,6 +1021,43 @@ func binOpText(op islandprogram.OpCode) string {
 		return "&&"
 	case islandprogram.OpOr:
 		return "||"
+	case islandprogram.OpConcat:
+		return "+"
+	default:
+		return ""
+	}
+}
+
+func portableCallName(op islandprogram.OpCode) string {
+	switch op {
+	case islandprogram.OpLen:
+		return "len"
+	case islandprogram.OpToUpper:
+		return "upper"
+	case islandprogram.OpToLower:
+		return "lower"
+	case islandprogram.OpTrim:
+		return "trim"
+	case islandprogram.OpSplit:
+		return "split"
+	case islandprogram.OpJoin:
+		return "join"
+	case islandprogram.OpReplace:
+		return "replace"
+	case islandprogram.OpSubstring:
+		return "substring"
+	case islandprogram.OpStartsWith:
+		return "startsWith"
+	case islandprogram.OpEndsWith:
+		return "endsWith"
+	case islandprogram.OpContains:
+		return "contains"
+	case islandprogram.OpToString:
+		return "toString"
+	case islandprogram.OpToInt:
+		return "toInt"
+	case islandprogram.OpToFloat:
+		return "toFloat"
 	default:
 		return ""
 	}
