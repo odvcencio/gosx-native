@@ -91,8 +91,8 @@ jobs:
       - name: Refresh generated Counter
         working-directory: gosx-native
         run: |
-          go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/java/generated/Counter.kt
-          git diff --exit-code -- examples/counter-android/app/src/main/java/generated/Counter.kt
+          go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
+          git diff --exit-code -- examples/counter-android/app/src/main/kotlin/generated/Counter.kt
       - name: Assemble Android Counter demo
         working-directory: gosx-native/examples/counter-android
         run: gradle --no-daemon :app:assembleDebug

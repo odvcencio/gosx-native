@@ -13,6 +13,7 @@
 - Gradle 9.4.1.
 - JDK 17.
 - Kotlin Android + Compose compiler plugin 2.3.21.
+- AGP 9 built-in Kotlin support, without the legacy `org.jetbrains.kotlin.android` plugin.
 - Compose BOM 2026.04.01.
 - Activity Compose 1.13.0.
 - Android SDK platform 36, build tools 36.0.0.

@@ -7,7 +7,7 @@ smoke:
 	cd test/e2e && go test -tags smoke -v ./...
 
 android-smoke:
-	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/java/generated/Counter.kt
+	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
 	cd examples/counter-android && gradle --no-daemon :app:assembleDebug
 
 demo:

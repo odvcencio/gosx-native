@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -16,15 +15,18 @@ android {
         versionName = "0.1.0"
     }
 
-    sourceSets["main"].java.srcDir(rootProject.file("../../runtime/android/src/main/kotlin"))
+    sourceSets.named("main") {
+        kotlin.directories += rootProject.file("../../runtime/android/src/main/kotlin")
+    }
 
     buildFeatures {
         compose = true
     }
-}
 
-kotlin {
-    jvmToolchain(17)
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
 
 dependencies {
