@@ -19,6 +19,9 @@ func SwiftGSXGrammar() *grammargen.Grammar {
 	return grammargen.ExtendGrammar("swift_gsx", grammargen.SwiftGrammar(), func(g *grammargen.Grammar) {
 		g.SetExternals(grammargen.Sym("jsx_text"))
 
+		g.Define("type_identifier",
+			grammargen.Pat(`[A-Z][A-Za-z0-9_]*`))
+
 		g.Define("source_file",
 			grammargen.Repeat(grammargen.Choice(
 				grammargen.Sym("struct_declaration"),
