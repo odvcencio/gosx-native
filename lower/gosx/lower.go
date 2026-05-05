@@ -160,6 +160,14 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 			}
 			if ok {
 				element.Handlers = append(element.Handlers, handler)
+				continue
+			}
+			loweredAttr, ok, err := l.lowerElementAttr(attr)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				element.Attrs = append(element.Attrs, loweredAttr)
 			}
 		}
 		for _, childID := range node.Children {
@@ -217,6 +225,32 @@ func (l *lowerer) lowerHandlerAttr(attr gosxir.Attr) (nir.Handler, bool, error) 
 		return nir.Handler{Event: nativeEvent(attr.Name), Body: body}, true, nil
 	}
 	return nir.Handler{}, false, nil
+}
+
+func (l *lowerer) lowerElementAttr(attr gosxir.Attr) (nir.Attr, bool, error) {
+	if !nativeAttr(attr.Name) {
+		return nir.Attr{}, false, nil
+	}
+	switch attr.Kind {
+	case gosxir.AttrStatic:
+		return nir.Attr{
+			Name:  attr.Name,
+			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: attr.Value}},
+		}, true, nil
+	case gosxir.AttrBool:
+		return nir.Attr{
+			Name:  attr.Name,
+			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "bool", Value: "true"}},
+		}, true, nil
+	case gosxir.AttrExpr:
+		expr, err := l.lowerRxExpr(attr.Expr)
+		if err != nil {
+			return nir.Attr{}, false, err
+		}
+		return nir.Attr{Name: attr.Name, Value: *expr}, true, nil
+	default:
+		return nir.Attr{}, false, nil
+	}
 }
 
 func (l *lowerer) lowerHandlerBody(expr string) (nir.RxBlock, error) {
@@ -282,6 +316,8 @@ func (l *lowerer) rxExprFromProgram(exprs []islandprogram.Expr, id islandprogram
 		return &nir.RxExpr{Kind: "ref", Ref: ref}, nil
 	}
 	switch expr.Op {
+	case islandprogram.OpEventGet:
+		return &nir.RxExpr{Kind: "ref", Ref: "event." + expr.Value}, nil
 	case islandprogram.OpLitString:
 		return &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: expr.Value}}, nil
 	case islandprogram.OpLitInt:
@@ -517,8 +553,19 @@ func nativeTag(tag string) string {
 		return "vstack"
 	case "span", "p", "label", "text":
 		return "text"
+	case "input":
+		return "textinput"
 	default:
 		return lowerFirst(tag)
+	}
+}
+
+func nativeAttr(name string) bool {
+	switch name {
+	case "placeholder", "type", "value":
+		return true
+	default:
+		return false
 	}
 }
 

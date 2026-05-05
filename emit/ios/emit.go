@@ -62,6 +62,9 @@ func emitView(v nir.View, indent int) string {
 		if n.Tag == "text" {
 			return pad + emitTextElement(n)
 		}
+		if n.Tag == "textinput" {
+			return pad + emitTextInput(n)
+		}
 		for _, h := range n.Handlers {
 			if h.Event == "tap" {
 				return pad + fmt.Sprintf("Button(%s) { %s }", strconv.Quote(emitChildrenInline(n.Children)), emitRxBlock(h.Body))
@@ -91,6 +94,25 @@ func emitView(v nir.View, indent int) string {
 	}
 }
 
+func emitTextInput(n *nir.Element) string {
+	placeholder := literalAttr(n, "placeholder")
+	value := attrExpr(n, "value")
+	if value == nil {
+		value = &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: ""}}
+	}
+	for _, h := range n.Handlers {
+		if h.Event == "input" || h.Event == "change" {
+			return fmt.Sprintf(
+				"TextField(%s, text: Binding(get: { %s }, set: { eventValue in %s }))",
+				strconv.Quote(placeholder),
+				emitRxExpr(value),
+				emitRxBlockWithEventValue(h.Body, "eventValue"),
+			)
+		}
+	}
+	return fmt.Sprintf("TextField(%s, text: .constant(%s))", strconv.Quote(placeholder), emitRxExpr(value))
+}
+
 func emitTextElement(n *nir.Element) string {
 	if len(n.Children) == 0 {
 		return `Text("")`
@@ -103,7 +125,7 @@ func emitTextElement(n *nir.Element) string {
 			return fmt.Sprintf(`Text("\(%s)")`, emitRxExpr(&child.Expr))
 		}
 	}
-	return fmt.Sprintf("Text(%s)", strconv.Quote(emitChildrenInline(n.Children)))
+	return fmt.Sprintf("Text(%s)", emitInterpolatedString(n.Children))
 }
 
 func emitChildrenInline(children []nir.View) string {
@@ -121,7 +143,33 @@ func emitChildrenInline(children []nir.View) string {
 	return sb.String()
 }
 
+func emitInterpolatedString(children []nir.View) string {
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for _, child := range children {
+		switch n := child.(type) {
+		case *nir.Text:
+			sb.WriteString(quotedStringBody(n.Value))
+		case *nir.ExprHole:
+			sb.WriteString(`\(`)
+			sb.WriteString(emitRxExpr(&n.Expr))
+			sb.WriteString(")")
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
+}
+
+func quotedStringBody(s string) string {
+	quoted := strconv.Quote(s)
+	return quoted[1 : len(quoted)-1]
+}
+
 func emitRxExpr(e *nir.RxExpr) string {
+	return emitRxExprWithEventValue(e, "")
+}
+
+func emitRxExprWithEventValue(e *nir.RxExpr, eventValue string) string {
 	if e == nil {
 		return ""
 	}
@@ -135,19 +183,22 @@ func emitRxExpr(e *nir.RxExpr) string {
 		}
 		return e.Literal.Value
 	case "ref":
+		if eventValue != "" && e.Ref == "event.value" {
+			return eventValue
+		}
 		return e.Ref
 	case "binop":
 		if e.BinOp == nil {
 			return ""
 		}
-		return fmt.Sprintf("%s %s %s", emitRxExpr(&e.BinOp.Left), e.BinOp.Op, emitRxExpr(&e.BinOp.Right))
+		return fmt.Sprintf("%s %s %s", emitRxExprWithEventValue(&e.BinOp.Left, eventValue), e.BinOp.Op, emitRxExprWithEventValue(&e.BinOp.Right, eventValue))
 	case "call":
 		if e.Call == nil {
 			return ""
 		}
 		args := make([]string, len(e.Call.Args))
 		for i := range e.Call.Args {
-			args[i] = emitRxExpr(&e.Call.Args[i])
+			args[i] = emitRxExprWithEventValue(&e.Call.Args[i], eventValue)
 		}
 		return fmt.Sprintf("%s(%s)", e.Call.Callee, strings.Join(args, ", "))
 	default:
@@ -156,14 +207,35 @@ func emitRxExpr(e *nir.RxExpr) string {
 }
 
 func emitRxBlock(b nir.RxBlock) string {
+	return emitRxBlockWithEventValue(b, "")
+}
+
+func emitRxBlockWithEventValue(b nir.RxBlock, eventValue string) string {
 	parts := make([]string, 0, len(b.Stmts))
 	for _, s := range b.Stmts {
 		switch s.Kind {
 		case "expr":
-			parts = append(parts, emitRxExpr(s.Expr))
+			parts = append(parts, emitRxExprWithEventValue(s.Expr, eventValue))
 		case "signal_set":
-			parts = append(parts, fmt.Sprintf("%s = %s", s.Target, emitRxExpr(s.Value)))
+			parts = append(parts, fmt.Sprintf("%s = %s", s.Target, emitRxExprWithEventValue(s.Value, eventValue)))
 		}
 	}
 	return strings.Join(parts, "; ")
+}
+
+func attrExpr(n *nir.Element, name string) *nir.RxExpr {
+	for i := range n.Attrs {
+		if n.Attrs[i].Name == name {
+			return &n.Attrs[i].Value
+		}
+	}
+	return nil
+}
+
+func literalAttr(n *nir.Element, name string) string {
+	expr := attrExpr(n, name)
+	if expr == nil || expr.Kind != "literal" || expr.Literal == nil {
+		return ""
+	}
+	return expr.Literal.Value
 }

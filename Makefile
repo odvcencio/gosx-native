@@ -26,12 +26,16 @@ demo:
 	go run ./cmd/gsxnative emit android testdata/corpus/go/counter.gsx > /tmp/Counter.gosx.kt
 	go run ./cmd/gsxnative emit ios testdata/corpus/go/panel.gsx > /tmp/Panel.gosx.swift
 	go run ./cmd/gsxnative emit android testdata/corpus/go/panel.gsx > /tmp/Panel.gosx.kt
+	go run ./cmd/gsxnative emit ios testdata/corpus/go/greeter.gsx > /tmp/Greeter.gosx.swift
+	go run ./cmd/gsxnative emit android testdata/corpus/go/greeter.gsx > /tmp/Greeter.gosx.kt
 	@echo "Generated /tmp/Counter.swift"
 	@echo "Generated /tmp/Counter.kt"
 	@echo "Generated /tmp/Counter.gosx.swift"
 	@echo "Generated /tmp/Counter.gosx.kt"
 	@echo "Generated /tmp/Panel.gosx.swift"
 	@echo "Generated /tmp/Panel.gosx.kt"
+	@echo "Generated /tmp/Greeter.gosx.swift"
+	@echo "Generated /tmp/Greeter.gosx.kt"
 
 lint:
 	go vet ./...

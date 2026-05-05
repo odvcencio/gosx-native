@@ -76,6 +76,36 @@ func TestLowerPanelCoversInlineAndMultiSignalHandlers(t *testing.T) {
 	requireLiteralValue(t, advance.Handlers[0].Body.Stmts[1].Value, "string", "advanced")
 }
 
+func TestLowerGreeterCoversEventValueTextInput(t *testing.T) {
+	mod := lowerFixture(t, "greeter.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "Greeter" {
+		t.Fatalf("component name = %q, want Greeter", component.Name)
+	}
+	if got, want := component.Props.Fields, []nir.PropField{
+		{Name: "initialName", Type: "String"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	if got := len(component.Signals); got != 1 {
+		t.Fatalf("signals = %d, want 1", got)
+	}
+	assertSignal(t, component.Signals[0], "name", "String", "props.initialName")
+
+	root := requireElement(t, component.Body, "vstack")
+	if got := len(root.Children); got != 2 {
+		t.Fatalf("root children = %d, want 2", got)
+	}
+	input := requireElement(t, root.Children[0], "textinput")
+	requireAttrRef(t, input, "value", "name")
+	requireAttrLiteral(t, input, "placeholder", "string", "Name")
+	requireHandlerEventTargets(t, input, "input", []string{"name"})
+	requireRefValue(t, input.Handlers[0].Body.Stmts[0].Value, "event.value")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))
@@ -111,12 +141,17 @@ func requireElement(t *testing.T, view nir.View, tag string) *nir.Element {
 
 func requireHandlerTargets(t *testing.T, element *nir.Element, targets []string) {
 	t.Helper()
+	requireHandlerEventTargets(t, element, "tap", targets)
+}
+
+func requireHandlerEventTargets(t *testing.T, element *nir.Element, event string, targets []string) {
+	t.Helper()
 	if len(element.Handlers) != 1 {
 		t.Fatalf("handler count = %d, want 1", len(element.Handlers))
 	}
 	handler := element.Handlers[0]
-	if handler.Event != "tap" {
-		t.Fatalf("event = %q, want tap", handler.Event)
+	if handler.Event != event {
+		t.Fatalf("event = %q, want %q", handler.Event, event)
 	}
 	if len(handler.Body.Stmts) != len(targets) {
 		t.Fatalf("stmt count = %d, want %d", len(handler.Body.Stmts), len(targets))
@@ -127,6 +162,27 @@ func requireHandlerTargets(t *testing.T, element *nir.Element, targets []string)
 			t.Fatalf("stmt[%d] = %+v, want signal_set target=%s", i, stmt, target)
 		}
 	}
+}
+
+func requireAttrRef(t *testing.T, element *nir.Element, name, ref string) {
+	t.Helper()
+	requireRefValue(t, requireAttr(t, element, name), ref)
+}
+
+func requireAttrLiteral(t *testing.T, element *nir.Element, name, typ, value string) {
+	t.Helper()
+	requireLiteralValue(t, requireAttr(t, element, name), typ, value)
+}
+
+func requireAttr(t *testing.T, element *nir.Element, name string) *nir.RxExpr {
+	t.Helper()
+	for i := range element.Attrs {
+		if element.Attrs[i].Name == name {
+			return &element.Attrs[i].Value
+		}
+	}
+	t.Fatalf("missing attr %q on %+v", name, element.Attrs)
+	return nil
 }
 
 func requireRefValue(t *testing.T, expr *nir.RxExpr, ref string) {

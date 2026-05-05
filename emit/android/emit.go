@@ -19,6 +19,9 @@ func Emit(mod *nir.Module, w io.Writer) error {
 	fmt.Fprintln(w, "import androidx.compose.foundation.layout.Row")
 	fmt.Fprintln(w, "import androidx.compose.material3.Button")
 	fmt.Fprintln(w, "import androidx.compose.material3.Text")
+	if moduleHasTag(mod, "textinput") {
+		fmt.Fprintln(w, "import androidx.compose.material3.TextField")
+	}
 	fmt.Fprintln(w, "import androidx.compose.runtime.Composable")
 	fmt.Fprintln(w, "import androidx.compose.runtime.getValue")
 	fmt.Fprintln(w, "import androidx.compose.runtime.setValue")
@@ -34,6 +37,31 @@ func Emit(mod *nir.Module, w io.Writer) error {
 		}
 	}
 	return nil
+}
+
+func moduleHasTag(mod *nir.Module, tag string) bool {
+	for _, c := range mod.Components {
+		if viewHasTag(c.Body, tag) {
+			return true
+		}
+	}
+	return false
+}
+
+func viewHasTag(v nir.View, tag string) bool {
+	element, ok := v.(*nir.Element)
+	if !ok {
+		return false
+	}
+	if element.Tag == tag {
+		return true
+	}
+	for _, child := range element.Children {
+		if viewHasTag(child, tag) {
+			return true
+		}
+	}
+	return false
 }
 
 func emitComponent(w io.Writer, c *nir.Component) error {
@@ -69,6 +97,9 @@ func emitView(v nir.View, indent int) string {
 	case *nir.Element:
 		if n.Tag == "text" {
 			return pad + emitTextElement(n)
+		}
+		if n.Tag == "textinput" {
+			return pad + emitTextInput(n, indent)
 		}
 		for _, h := range n.Handlers {
 			if h.Event == "tap" {
@@ -110,6 +141,46 @@ func emitView(v nir.View, indent int) string {
 	}
 }
 
+func emitTextInput(n *nir.Element, indent int) string {
+	pad := strings.Repeat("    ", indent)
+	childPad := strings.Repeat("    ", indent+1)
+	value := attrExpr(n, "value")
+	if value == nil {
+		value = &nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: ""}}
+	}
+	var handler *nir.Handler
+	for i := range n.Handlers {
+		if n.Handlers[i].Event == "input" || n.Handlers[i].Event == "change" {
+			handler = &n.Handlers[i]
+			break
+		}
+	}
+	onValueChange := "{ _ -> }"
+	if handler != nil {
+		onValueChange = "{ eventValue -> " + emitRxBlockWithEventValue(handler.Body, "eventValue") + " }"
+	}
+	var sb strings.Builder
+	sb.WriteString("TextField(\n")
+	sb.WriteString(childPad)
+	sb.WriteString("value = ")
+	sb.WriteString(emitRxExpr(value))
+	sb.WriteString(",\n")
+	sb.WriteString(childPad)
+	sb.WriteString("onValueChange = ")
+	sb.WriteString(onValueChange)
+	if placeholder := literalAttr(n, "placeholder"); placeholder != "" {
+		sb.WriteString(",\n")
+		sb.WriteString(childPad)
+		sb.WriteString("placeholder = { Text(text = ")
+		sb.WriteString(kotlinQuote(placeholder))
+		sb.WriteString(") }")
+	}
+	sb.WriteByte('\n')
+	sb.WriteString(pad)
+	sb.WriteString(")")
+	return sb.String()
+}
+
 func emitTextElement(n *nir.Element) string {
 	if len(n.Children) == 0 {
 		return `Text(text = "")`
@@ -141,6 +212,10 @@ func emitChildrenInline(children []nir.View) string {
 }
 
 func emitRxExpr(e *nir.RxExpr) string {
+	return emitRxExprWithEventValue(e, "")
+}
+
+func emitRxExprWithEventValue(e *nir.RxExpr, eventValue string) string {
 	if e == nil {
 		return ""
 	}
@@ -154,19 +229,22 @@ func emitRxExpr(e *nir.RxExpr) string {
 		}
 		return e.Literal.Value
 	case "ref":
+		if eventValue != "" && e.Ref == "event.value" {
+			return eventValue
+		}
 		return e.Ref
 	case "binop":
 		if e.BinOp == nil {
 			return ""
 		}
-		return fmt.Sprintf("%s %s %s", emitRxExpr(&e.BinOp.Left), e.BinOp.Op, emitRxExpr(&e.BinOp.Right))
+		return fmt.Sprintf("%s %s %s", emitRxExprWithEventValue(&e.BinOp.Left, eventValue), e.BinOp.Op, emitRxExprWithEventValue(&e.BinOp.Right, eventValue))
 	case "call":
 		if e.Call == nil {
 			return ""
 		}
 		args := make([]string, len(e.Call.Args))
 		for i := range e.Call.Args {
-			args[i] = emitRxExpr(&e.Call.Args[i])
+			args[i] = emitRxExprWithEventValue(&e.Call.Args[i], eventValue)
 		}
 		return fmt.Sprintf("%s(%s)", e.Call.Callee, strings.Join(args, ", "))
 	default:
@@ -175,13 +253,17 @@ func emitRxExpr(e *nir.RxExpr) string {
 }
 
 func emitRxBlock(b nir.RxBlock) string {
+	return emitRxBlockWithEventValue(b, "")
+}
+
+func emitRxBlockWithEventValue(b nir.RxBlock, eventValue string) string {
 	parts := make([]string, 0, len(b.Stmts))
 	for _, s := range b.Stmts {
 		switch s.Kind {
 		case "expr":
-			parts = append(parts, emitRxExpr(s.Expr))
+			parts = append(parts, emitRxExprWithEventValue(s.Expr, eventValue))
 		case "signal_set":
-			parts = append(parts, fmt.Sprintf("%s = %s", s.Target, emitRxExpr(s.Value)))
+			parts = append(parts, fmt.Sprintf("%s = %s", s.Target, emitRxExprWithEventValue(s.Value, eventValue)))
 		}
 	}
 	return strings.Join(parts, "; ")
@@ -200,4 +282,21 @@ func kotlinType(swiftType string) string {
 
 func kotlinQuote(s string) string {
 	return strconv.Quote(s)
+}
+
+func attrExpr(n *nir.Element, name string) *nir.RxExpr {
+	for i := range n.Attrs {
+		if n.Attrs[i].Name == name {
+			return &n.Attrs[i].Value
+		}
+	}
+	return nil
+}
+
+func literalAttr(n *nir.Element, name string) string {
+	expr := attrExpr(n, name)
+	if expr == nil || expr.Kind != "literal" || expr.Literal == nil {
+		return ""
+	}
+	return expr.Literal.Value
 }
