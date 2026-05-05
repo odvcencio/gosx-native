@@ -10,10 +10,10 @@ import (
 
 func runEmit(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: gsxnative emit <ios|android> <file.swift.gsx>")
+		return fmt.Errorf("usage: gsxnative emit <ios|android> <file.gsx|file.swift.gsx>")
 	}
 	target, file := args[0], args[1]
-	mod, err := compileSwift(file)
+	mod, err := compileFile(file)
 	if err != nil {
 		return err
 	}

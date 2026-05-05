@@ -19,11 +19,15 @@ android-managed:
 	cd examples/counter-android && gradle --no-daemon :app:ciApi30DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
 demo:
-	@echo "Running M1 vertical slice demo..."
+	@echo "Running counter vertical slice demo..."
 	go run ./cmd/gsxnative emit ios testdata/corpus/swift/counter.swift.gsx > /tmp/Counter.swift
 	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > /tmp/Counter.kt
+	go run ./cmd/gsxnative emit ios testdata/corpus/go/counter.gsx > /tmp/Counter.gosx.swift
+	go run ./cmd/gsxnative emit android testdata/corpus/go/counter.gsx > /tmp/Counter.gosx.kt
 	@echo "Generated /tmp/Counter.swift"
 	@echo "Generated /tmp/Counter.kt"
+	@echo "Generated /tmp/Counter.gosx.swift"
+	@echo "Generated /tmp/Counter.gosx.kt"
 
 lint:
 	go vet ./...
