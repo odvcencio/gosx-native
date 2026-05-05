@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -55,6 +56,19 @@ func TestEmitIOSGoSXCounterPrintsSwift(t *testing.T) {
 	}
 }
 
+func TestEmitIOSGoSXPanelMatchesGolden(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "ios", "../../testdata/corpus/go/panel.gsx")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	expected := readExpected(t, "../../testdata/expected/emit/ios/Panel.swift")
+	if !bytes.Equal(bytes.TrimSpace(out.Bytes()), bytes.TrimSpace(expected)) {
+		t.Fatalf("expected Panel Swift golden.\nGot:\n%s\n\nExpected:\n%s", out.String(), expected)
+	}
+}
+
 func TestEmitAndroidCounterPrintsKotlin(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/swift/counter.swift.gsx")
 	var out bytes.Buffer
@@ -77,4 +91,26 @@ func TestEmitAndroidGoSXCounterPrintsKotlin(t *testing.T) {
 	if !strings.Contains(out.String(), "fun Counter(props: CounterProps)") || !strings.Contains(out.String(), "count = count + 1") {
 		t.Fatalf("expected Counter Kotlin from GoSX, got:\n%s", out.String())
 	}
+}
+
+func TestEmitAndroidGoSXPanelMatchesGolden(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/go/panel.gsx")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	expected := readExpected(t, "../../testdata/expected/emit/android/Panel.kt")
+	if !bytes.Equal(bytes.TrimSpace(out.Bytes()), bytes.TrimSpace(expected)) {
+		t.Fatalf("expected Panel Kotlin golden.\nGot:\n%s\n\nExpected:\n%s", out.String(), expected)
+	}
+}
+
+func readExpected(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read expected %s: %v", path, err)
+	}
+	return data
 }

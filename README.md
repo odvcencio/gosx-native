@@ -10,6 +10,7 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 
 - GoSX source to iOS: `go run ./cmd/gsxnative emit ios testdata/corpus/go/counter.gsx`
 - GoSX source to Android: `go run ./cmd/gsxnative emit android testdata/corpus/go/counter.gsx`
+- Broader GoSX handler fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/panel.gsx`
 - iOS smoke: `make smoke`
 - Android assemble smoke: `make android-smoke`
 - Android emulator interaction smoke, with an emulator already booted: `make android-connected`
