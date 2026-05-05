@@ -49,16 +49,26 @@ func moduleHasTag(mod *nir.Module, tag string) bool {
 }
 
 func viewHasTag(v nir.View, tag string) bool {
-	element, ok := v.(*nir.Element)
-	if !ok {
-		return false
-	}
-	if element.Tag == tag {
-		return true
-	}
-	for _, child := range element.Children {
-		if viewHasTag(child, tag) {
+	switch n := v.(type) {
+	case *nir.Element:
+		if n.Tag == tag {
 			return true
+		}
+		for _, child := range n.Children {
+			if viewHasTag(child, tag) {
+				return true
+			}
+		}
+	case *nir.Conditional:
+		for _, child := range n.Then {
+			if viewHasTag(child, tag) {
+				return true
+			}
+		}
+		for _, child := range n.Else {
+			if viewHasTag(child, tag) {
+				return true
+			}
 		}
 	}
 	return false
@@ -139,9 +149,35 @@ func emitView(v nir.View, indent int) string {
 		return pad + "Text(text = " + kotlinQuote(n.Value) + ")"
 	case *nir.ExprHole:
 		return pad + `Text(text = "${` + emitRxExpr(&n.Expr) + `}")`
+	case *nir.Conditional:
+		return emitConditional(n, indent)
 	default:
 		return pad + "/* unsupported view */"
 	}
+}
+
+func emitConditional(n *nir.Conditional, indent int) string {
+	pad := strings.Repeat("    ", indent)
+	var sb strings.Builder
+	sb.WriteString(pad)
+	sb.WriteString("if (")
+	sb.WriteString(emitRxExpr(&n.Condition))
+	sb.WriteString(") {\n")
+	for _, child := range n.Then {
+		sb.WriteString(emitView(child, indent+1))
+		sb.WriteByte('\n')
+	}
+	if len(n.Else) > 0 {
+		sb.WriteString(pad)
+		sb.WriteString("} else {\n")
+		for _, child := range n.Else {
+			sb.WriteString(emitView(child, indent+1))
+			sb.WriteByte('\n')
+		}
+	}
+	sb.WriteString(pad)
+	sb.WriteString("}")
+	return sb.String()
 }
 
 func emitTextInput(n *nir.Element, indent int) string {

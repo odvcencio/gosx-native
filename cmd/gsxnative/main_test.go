@@ -95,6 +95,19 @@ func TestEmitIOSGoSXDerivedMatchesGolden(t *testing.T) {
 	}
 }
 
+func TestEmitIOSGoSXToggleMatchesGolden(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "ios", "../../testdata/corpus/go/conditional.gsx")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	expected := readExpected(t, "../../testdata/expected/emit/ios/Toggle.swift")
+	if !bytes.Equal(bytes.TrimSpace(out.Bytes()), bytes.TrimSpace(expected)) {
+		t.Fatalf("expected Toggle Swift golden.\nGot:\n%s\n\nExpected:\n%s", out.String(), expected)
+	}
+}
+
 func TestEmitAndroidCounterPrintsKotlin(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/swift/counter.swift.gsx")
 	var out bytes.Buffer
@@ -155,6 +168,19 @@ func TestEmitAndroidGoSXDerivedMatchesGolden(t *testing.T) {
 	expected := readExpected(t, "../../testdata/expected/emit/android/Derived.kt")
 	if !bytes.Equal(bytes.TrimSpace(out.Bytes()), bytes.TrimSpace(expected)) {
 		t.Fatalf("expected Derived Kotlin golden.\nGot:\n%s\n\nExpected:\n%s", out.String(), expected)
+	}
+}
+
+func TestEmitAndroidGoSXToggleMatchesGolden(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/go/conditional.gsx")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	expected := readExpected(t, "../../testdata/expected/emit/android/Toggle.kt")
+	if !bytes.Equal(bytes.TrimSpace(out.Bytes()), bytes.TrimSpace(expected)) {
+		t.Fatalf("expected Toggle Kotlin golden.\nGot:\n%s\n\nExpected:\n%s", out.String(), expected)
 	}
 }
 

@@ -30,6 +30,8 @@ demo:
 	go run ./cmd/gsxnative emit android testdata/corpus/go/greeter.gsx > /tmp/Greeter.gosx.kt
 	go run ./cmd/gsxnative emit ios testdata/corpus/go/derived.gsx > /tmp/Derived.gosx.swift
 	go run ./cmd/gsxnative emit android testdata/corpus/go/derived.gsx > /tmp/Derived.gosx.kt
+	go run ./cmd/gsxnative emit ios testdata/corpus/go/conditional.gsx > /tmp/Toggle.gosx.swift
+	go run ./cmd/gsxnative emit android testdata/corpus/go/conditional.gsx > /tmp/Toggle.gosx.kt
 	@echo "Generated /tmp/Counter.swift"
 	@echo "Generated /tmp/Counter.kt"
 	@echo "Generated /tmp/Counter.gosx.swift"
@@ -40,6 +42,8 @@ demo:
 	@echo "Generated /tmp/Greeter.gosx.kt"
 	@echo "Generated /tmp/Derived.gosx.swift"
 	@echo "Generated /tmp/Derived.gosx.kt"
+	@echo "Generated /tmp/Toggle.gosx.swift"
+	@echo "Generated /tmp/Toggle.gosx.kt"
 
 lint:
 	go vet ./...

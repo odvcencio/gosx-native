@@ -144,6 +144,47 @@ func TestLowerDerivedCoversComputedDecl(t *testing.T) {
 	requireBinOpValue(t, button.Handlers[0].Body.Stmts[0].Value, "+")
 }
 
+func TestLowerConditionalCoversIfViewNode(t *testing.T) {
+	mod := lowerFixture(t, "conditional.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "Toggle" {
+		t.Fatalf("component name = %q, want Toggle", component.Name)
+	}
+	if got, want := component.Props.Fields, []nir.PropField{
+		{Name: "initiallyVisible", Type: "Bool"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	if got := len(component.Signals); got != 1 {
+		t.Fatalf("signals = %d, want 1", got)
+	}
+	assertSignal(t, component.Signals[0], "visible", "Bool", "props.initiallyVisible")
+
+	root := requireElement(t, component.Body, "vstack")
+	if got := len(root.Children); got != 2 {
+		t.Fatalf("root children = %d, want 2", got)
+	}
+	conditional := requireConditional(t, root.Children[0], "visible")
+	if got := len(conditional.Then); got != 1 {
+		t.Fatalf("then children = %d, want 1", got)
+	}
+	visibleText := requireElement(t, conditional.Then[0], "text")
+	if got := len(visibleText.Children); got != 1 {
+		t.Fatalf("text children = %d, want 1", got)
+	}
+	visible, ok := visibleText.Children[0].(*nir.Text)
+	if !ok || visible.Value != "Visible" {
+		t.Fatalf("conditional text = %+v, want Visible", visibleText.Children[0])
+	}
+
+	button := requireElement(t, root.Children[1], "button")
+	requireHandlerTargets(t, button, []string{"visible"})
+	requireLiteralValue(t, button.Handlers[0].Body.Stmts[0].Value, "bool", "false")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))
@@ -232,6 +273,16 @@ func requireExprHoleRef(t *testing.T, view nir.View, ref string) {
 	requireRefValue(t, &hole.Expr, ref)
 }
 
+func requireConditional(t *testing.T, view nir.View, conditionRef string) *nir.Conditional {
+	t.Helper()
+	conditional, ok := view.(*nir.Conditional)
+	if !ok {
+		t.Fatalf("view = %T, want *nir.Conditional", view)
+	}
+	requireRefValue(t, &conditional.Condition, conditionRef)
+	return conditional
+}
+
 func requireRefValue(t *testing.T, expr *nir.RxExpr, ref string) {
 	t.Helper()
 	if expr == nil || expr.Kind != "ref" || expr.Ref != ref {
@@ -291,6 +342,15 @@ func normalizeView(view nir.View) {
 	case *nir.ExprHole:
 		node.Span = nir.Span{}
 		normalizeRxExpr(&node.Expr)
+	case *nir.Conditional:
+		node.Span = nir.Span{}
+		normalizeRxExpr(&node.Condition)
+		for _, child := range node.Then {
+			normalizeView(child)
+		}
+		for _, child := range node.Else {
+			normalizeView(child)
+		}
 	}
 }
 

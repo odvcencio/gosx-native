@@ -172,38 +172,13 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 	}
 	node := l.prog.NodeAt(id)
 	switch node.Kind {
-	case gosxir.NodeElement, gosxir.NodeComponent:
-		element := &nir.Element{
-			Tag:  nativeTag(node.Tag),
-			Span: irSpan(node.Span),
+	case gosxir.NodeComponent:
+		if isConditionalComponent(node.Tag) {
+			return l.lowerConditionalView(node)
 		}
-		for _, attr := range node.Attrs {
-			handler, ok, err := l.lowerHandlerAttr(attr)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				element.Handlers = append(element.Handlers, handler)
-				continue
-			}
-			loweredAttr, ok, err := l.lowerElementAttr(attr)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				element.Attrs = append(element.Attrs, loweredAttr)
-			}
-		}
-		for _, childID := range node.Children {
-			child, err := l.lowerView(childID)
-			if err != nil {
-				return nil, err
-			}
-			if child != nil {
-				element.Children = append(element.Children, child)
-			}
-		}
-		return element, nil
+		return l.lowerElementView(node)
+	case gosxir.NodeElement:
+		return l.lowerElementView(node)
 	case gosxir.NodeText, gosxir.NodeRawHTML:
 		value := strings.TrimSpace(node.Text)
 		if value == "" {
@@ -231,6 +206,103 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 	default:
 		return nil, fmt.Errorf("unsupported GoSX node kind %d", node.Kind)
 	}
+}
+
+func (l *lowerer) lowerElementView(node *gosxir.Node) (nir.View, error) {
+	element := &nir.Element{
+		Tag:  nativeTag(node.Tag),
+		Span: irSpan(node.Span),
+	}
+	for _, attr := range node.Attrs {
+		handler, ok, err := l.lowerHandlerAttr(attr)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			element.Handlers = append(element.Handlers, handler)
+			continue
+		}
+		loweredAttr, ok, err := l.lowerElementAttr(attr)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			element.Attrs = append(element.Attrs, loweredAttr)
+		}
+	}
+	for _, childID := range node.Children {
+		child, err := l.lowerView(childID)
+		if err != nil {
+			return nil, err
+		}
+		if child != nil {
+			element.Children = append(element.Children, child)
+		}
+	}
+	return element, nil
+}
+
+func (l *lowerer) lowerConditionalView(node *gosxir.Node) (nir.View, error) {
+	conditionSource, ok := viewAttrSource(node.Attrs, false, "when", "if", "cond", "test")
+	if !ok || strings.TrimSpace(conditionSource) == "" {
+		return nil, fmt.Errorf("%s requires a when/if/cond/test attribute", node.Tag)
+	}
+	condition, err := l.lowerRxExpr(conditionSource)
+	if err != nil {
+		return nil, fmt.Errorf("condition %q: %w", conditionSource, err)
+	}
+	conditional := &nir.Conditional{
+		Condition: *condition,
+		Span:      irSpan(node.Span),
+	}
+	for _, childID := range node.Children {
+		child, err := l.lowerView(childID)
+		if err != nil {
+			return nil, err
+		}
+		if child != nil {
+			conditional.Then = append(conditional.Then, child)
+		}
+	}
+	if fallbackSource, ok := viewAttrSource(node.Attrs, true, "fallback", "else"); ok && strings.TrimSpace(fallbackSource) != "" {
+		fallback, err := l.lowerRxExpr(fallbackSource)
+		if err != nil {
+			return nil, fmt.Errorf("fallback %q: %w", fallbackSource, err)
+		}
+		conditional.Else = append(conditional.Else, &nir.ExprHole{Expr: *fallback, Span: irSpan(node.Span)})
+	}
+	return conditional, nil
+}
+
+func viewAttrSource(attrs []gosxir.Attr, quoteStatic bool, names ...string) (string, bool) {
+	for _, attr := range attrs {
+		if !stringIn(attr.Name, names) {
+			continue
+		}
+		switch attr.Kind {
+		case gosxir.AttrExpr:
+			return attr.Expr, true
+		case gosxir.AttrStatic:
+			if !quoteStatic {
+				return attr.Value, true
+			}
+			return strconv.Quote(attr.Value), true
+		case gosxir.AttrBool:
+			return "true", true
+		default:
+			return "", false
+		}
+	}
+	return "", false
+}
+
+func stringIn(value string, choices []string) bool {
+	for _, choice := range choices {
+		if value == choice {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *lowerer) lowerHandlerAttr(attr gosxir.Attr) (nir.Handler, bool, error) {
@@ -596,6 +668,15 @@ func nativeTag(tag string) string {
 		return "textinput"
 	default:
 		return lowerFirst(tag)
+	}
+}
+
+func isConditionalComponent(tag string) bool {
+	switch tag {
+	case "If", "Show", "When":
+		return true
+	default:
+		return false
 	}
 }
 
