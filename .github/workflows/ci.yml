@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gosx-native
+      - uses: actions/checkout@v4
+        with:
+          repository: odvcencio/gosx
+          path: gosx
+      - uses: actions/checkout@v4
+        with:
+          repository: odvcencio/gotreesitter
+          path: gotreesitter
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Test
+        working-directory: gosx-native
+        run: go test -race ./...
+      - name: Vet
+        working-directory: gosx-native
+        run: go vet ./...
+      - name: Format check
+        working-directory: gosx-native
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  build-smoke-macos:
+    runs-on: macos-latest
+    needs: unit-linux
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gosx-native
+      - uses: actions/checkout@v4
+        with:
+          repository: odvcencio/gosx
+          path: gosx
+      - uses: actions/checkout@v4
+        with:
+          repository: odvcencio/gotreesitter
+          path: gotreesitter
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: E2E
+        working-directory: gosx-native
+        run: go test -tags smoke -v ./test/e2e/...
