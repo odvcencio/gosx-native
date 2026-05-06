@@ -1,4 +1,4 @@
-# Scene3D Target And Build Gate
+# Scene3D Target And Static Surface
 
 ## Goal
 
@@ -14,7 +14,9 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 
 ## Remaining Backend Work
 
+- Static `<Mesh>`, `<Model>`, and `<Points>` now emit into native runtime Scene3D views.
 - Add native Scene3D NIR payloads instead of generic element placeholders.
-- Choose iOS backend surface: SceneKit, Metal, or a portable renderer bridge.
-- Choose Android backend surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
-- Add cross-target Scene3D conformance fixtures once a backend can render.
+- Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
+- Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
+- Add native support for `<Html>`, `<InstancedMesh>`, `<ComputeParticles>`, and `<PostFX.*>` after the durable backend is selected.
+- Add cross-target Scene3D conformance fixtures for native render output.

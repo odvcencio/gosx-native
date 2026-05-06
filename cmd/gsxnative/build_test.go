@@ -115,7 +115,36 @@ func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	}
 }
 
-func TestBuildScene3DStopsBeforeNativeTools(t *testing.T) {
+func TestBuildAndroidScene3DRegeneratesSourceAndRunsGradle(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "SceneDemo.kt")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/scene3d.gsx"),
+		"--output", output,
+		"--project", project,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read generated Kotlin: %v", err)
+	}
+	if !strings.Contains(string(data), "GSXScene3D(scene = GSXScene3DScene(") {
+		t.Fatalf("expected generated Scene3D surface, got:\n%s", data)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+}
+
+func TestBuildUnsupportedScene3DStopsBeforeNativeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
 	if err != nil {
@@ -124,14 +153,14 @@ func TestBuildScene3DStopsBeforeNativeTools(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "SceneDemo.kt")
 	err = runBuild([]string{
 		"android",
-		"--source", filepath.Join(root, "testdata/corpus/go/scene3d.gsx"),
+		"--source", filepath.Join(root, "testdata/corpus/go/scene3d_compute.gsx"),
 		"--output", output,
 		"--project", t.TempDir(),
 	})
 	if err == nil {
 		t.Fatalf("expected Scene3D build failure")
 	}
-	if !strings.Contains(err.Error(), "Scene3D native backend is not implemented") {
+	if !strings.Contains(err.Error(), "Scene3D native backend does not support <ComputeParticles> yet") {
 		t.Fatalf("expected Scene3D diagnostic, got %v", err)
 	}
 	if len(fake.commands) != 0 {

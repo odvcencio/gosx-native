@@ -96,6 +96,7 @@ type validator struct {
 	target      Target
 	component   string
 	components  map[string]bool
+	inScene3D   bool
 	diagnostics Diagnostics
 }
 
@@ -128,7 +129,24 @@ func (v *validator) view(view nir.View) {
 
 func (v *validator) element(n *nir.Element) {
 	if IsScene3DTag(n.Tag) {
-		v.add(n.Span, fmt.Sprintf("Scene3D native backend is not implemented for <%s>", Scene3DDisplayName(n.Tag)))
+		if !Scene3DNativeTagSupported(n.Tag) {
+			v.add(n.Span, fmt.Sprintf("Scene3D native backend does not support <%s> yet", Scene3DDisplayName(n.Tag)))
+			return
+		}
+		if !v.inScene3D && normalizeScene3DTag(n.Tag) != "scene3d" {
+			v.add(n.Span, fmt.Sprintf("Scene3D tag <%s> must be inside <Scene3D>", Scene3DDisplayName(n.Tag)))
+			return
+		}
+		wasInScene3D := v.inScene3D
+		if normalizeScene3DTag(n.Tag) == "scene3d" {
+			v.inScene3D = true
+		}
+		defer func() {
+			v.inScene3D = wasInScene3D
+		}()
+		for _, child := range n.Children {
+			v.view(child)
+		}
 		return
 	}
 	if !tagSupported(v.target, n.Tag) {
@@ -143,7 +161,17 @@ func (v *validator) element(n *nir.Element) {
 
 func (v *validator) componentRef(n *nir.ComponentRef) {
 	if IsScene3DTag(n.Name) {
-		v.add(n.Span, fmt.Sprintf("Scene3D native backend is not implemented for <%s>", Scene3DDisplayName(n.Name)))
+		if !Scene3DNativeTagSupported(n.Name) {
+			v.add(n.Span, fmt.Sprintf("Scene3D native backend does not support <%s> yet", Scene3DDisplayName(n.Name)))
+			return
+		}
+		if !v.inScene3D && normalizeScene3DTag(n.Name) != "scene3d" {
+			v.add(n.Span, fmt.Sprintf("Scene3D tag <%s> must be inside <Scene3D>", Scene3DDisplayName(n.Name)))
+			return
+		}
+		for _, child := range n.Children {
+			v.view(child)
+		}
 		return
 	}
 	if !v.components[n.Name] {
@@ -243,6 +271,17 @@ func Scene3DDisplayName(tag string) string {
 		return "PostFX.Tonemap"
 	default:
 		return tag
+	}
+}
+
+func Scene3DNativeTagSupported(tag string) bool {
+	switch normalizeScene3DTag(tag) {
+	case "scene3d", "camera", "environment", "mesh", "model", "points",
+		"directionallight", "pointlight", "ambientlight", "spotlight",
+		"hemispherelight", "material":
+		return true
+	default:
+		return false
 	}
 }
 

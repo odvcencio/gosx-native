@@ -38,6 +38,11 @@ func Emit(mod *nir.Module, w io.Writer) error {
 		fmt.Fprintln(w, "import androidx.compose.ui.input.key.onKeyEvent")
 	}
 	fmt.Fprintln(w, "import com.gosx.nativekit.GSXComponent")
+	if moduleHasTag(mod, "scene3d") {
+		fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3D")
+		fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3DNode")
+		fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3DScene")
+	}
 	fmt.Fprintln(w, "import com.gosx.nativekit.rememberGSXSignal")
 	fmt.Fprintln(w)
 	for i, c := range mod.Components {
@@ -191,6 +196,9 @@ func emitView(v nir.View, indent int) string {
 	pad := strings.Repeat("    ", indent)
 	switch n := v.(type) {
 	case *nir.Element:
+		if n.Tag == "scene3d" {
+			return emitScene3D(n, indent)
+		}
 		if n.Tag == "text" {
 			return pad + emitTextElement(n)
 		}
@@ -250,6 +258,75 @@ func emitView(v nir.View, indent int) string {
 	default:
 		return pad + "/* unsupported view */"
 	}
+}
+
+func emitScene3D(n *nir.Element, indent int) string {
+	pad := strings.Repeat("    ", indent)
+	childPad := strings.Repeat("    ", indent+1)
+	grandchildPad := strings.Repeat("    ", indent+2)
+	nodes := scene3DNodes(n.Children)
+
+	var sb strings.Builder
+	sb.WriteString(pad)
+	sb.WriteString("GSXScene3D(scene = GSXScene3DScene(\n")
+	sb.WriteString(childPad)
+	sb.WriteString("width = ")
+	sb.WriteString(scene3DDoubleAttr(n, "width", "640.0"))
+	sb.WriteString(",\n")
+	sb.WriteString(childPad)
+	sb.WriteString("height = ")
+	sb.WriteString(scene3DDoubleAttr(n, "height", "360.0"))
+	sb.WriteString(",\n")
+	sb.WriteString(childPad)
+	sb.WriteString("background = ")
+	sb.WriteString(scene3DStringAttr(n, "background", "#101820"))
+	sb.WriteString(",\n")
+	sb.WriteString(childPad)
+	sb.WriteString("nodes = listOf(\n")
+	for i, node := range nodes {
+		sb.WriteString(grandchildPad)
+		sb.WriteString(emitScene3DNode(node, i))
+		sb.WriteString(",\n")
+	}
+	sb.WriteString(childPad)
+	sb.WriteString(")\n")
+	sb.WriteString(pad)
+	sb.WriteString("))")
+	return sb.String()
+}
+
+func emitScene3DNode(n *nir.Element, index int) string {
+	id := scene3DStringAttr(n, "id", fmt.Sprintf("%s-%d", n.Tag, index))
+	return fmt.Sprintf(
+		"GSXScene3DNode(id = %s, tag = %s, kind = %s, color = %s, x = %s, y = %s, z = %s, width = %s, height = %s, depth = %s, count = %s, size = %s)",
+		id,
+		kotlinQuote(n.Tag),
+		scene3DStringAttr(n, "kind", ""),
+		scene3DStringAttr(n, "color", "#8de1ff"),
+		scene3DDoubleAttr(n, "x", "0.0"),
+		scene3DDoubleAttr(n, "y", "0.0"),
+		scene3DDoubleAttr(n, "z", "0.0"),
+		scene3DDoubleAttr(n, "width", "1.0"),
+		scene3DDoubleAttr(n, "height", "1.0"),
+		scene3DDoubleAttr(n, "depth", "1.0"),
+		scene3DIntAttr(n, "count", "0"),
+		scene3DDoubleAttr(n, "size", "0.0"),
+	)
+}
+
+func scene3DNodes(children []nir.View) []*nir.Element {
+	nodes := make([]*nir.Element, 0, len(children))
+	for _, child := range children {
+		element, ok := child.(*nir.Element)
+		if !ok {
+			continue
+		}
+		switch element.Tag {
+		case "mesh", "model", "points":
+			nodes = append(nodes, element)
+		}
+	}
+	return nodes
 }
 
 func emitComponentRef(n *nir.ComponentRef) string {
@@ -660,4 +737,37 @@ func literalAttr(n *nir.Element, name string) string {
 		return ""
 	}
 	return expr.Literal.Value
+}
+
+func scene3DStringAttr(n *nir.Element, name, fallback string) string {
+	expr := attrExpr(n, name)
+	if expr == nil {
+		return kotlinQuote(fallback)
+	}
+	return emitRxExpr(expr)
+}
+
+func scene3DDoubleAttr(n *nir.Element, name, fallback string) string {
+	expr := attrExpr(n, name)
+	if expr == nil {
+		return fallback
+	}
+	if expr.Kind == "literal" && expr.Literal != nil {
+		if strings.Contains(expr.Literal.Value, ".") {
+			return expr.Literal.Value
+		}
+		return expr.Literal.Value + ".0"
+	}
+	return emitRxExpr(expr) + ".toDouble()"
+}
+
+func scene3DIntAttr(n *nir.Element, name, fallback string) string {
+	expr := attrExpr(n, name)
+	if expr == nil {
+		return fallback
+	}
+	if expr.Kind == "literal" && expr.Literal != nil {
+		return expr.Literal.Value
+	}
+	return emitRxExpr(expr)
 }
