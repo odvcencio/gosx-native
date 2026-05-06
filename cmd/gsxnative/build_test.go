@@ -144,6 +144,36 @@ func TestBuildAndroidScene3DRegeneratesSourceAndRunsGradle(t *testing.T) {
 	}
 }
 
+func TestBuildAndroidScene3DSpreadRegeneratesSourceAndRunsGradle(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "SpreadDemo.kt")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/scene3d_spread.gsx"),
+		"--output", output,
+		"--project", project,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read generated Kotlin: %v", err)
+	}
+	generated := string(data)
+	if !strings.Contains(generated, "val mesh: Map<String, Any?>") || !strings.Contains(generated, "gsxScene3DSpreadString(props.mesh") {
+		t.Fatalf("expected generated Scene3D spread surface, got:\n%s", data)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+}
+
 func TestBuildInvalidScene3DStopsBeforeNativeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
@@ -153,14 +183,14 @@ func TestBuildInvalidScene3DStopsBeforeNativeTools(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "SceneDemo.kt")
 	err = runBuild([]string{
 		"android",
-		"--source", filepath.Join(root, "testdata/corpus/go/scene3d_spread_unsupported.gsx"),
+		"--source", filepath.Join(root, "testdata/corpus/go/scene3d_html_invalid.gsx"),
 		"--output", output,
 		"--project", t.TempDir(),
 	})
 	if err == nil {
 		t.Fatalf("expected Scene3D build failure")
 	}
-	if !strings.Contains(err.Error(), "Scene3D spread props are not supported by native lowering yet") {
+	if !strings.Contains(err.Error(), "Scene3D <Html> requires literal html, markup, content, or static children") {
 		t.Fatalf("expected Scene3D diagnostic, got %v", err)
 	}
 	if len(fake.commands) != 0 {

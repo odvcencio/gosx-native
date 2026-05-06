@@ -112,6 +112,83 @@ public struct GSXScene3DPostEffect {
     }
 }
 
+public func gsxScene3DSpreadString(_ values: [String: Any], _ key: String, _ fallback: String) -> String {
+    guard let value = values[key] else {
+        return fallback
+    }
+    if let string = value as? String {
+        return string
+    }
+    return String(describing: value)
+}
+
+public func gsxScene3DSpreadFloat(_ values: [String: Any], _ key: String, _ fallback: Double) -> Double {
+    guard let value = values[key] else {
+        return fallback
+    }
+    if let double = value as? Double {
+        return double
+    }
+    if let float = value as? Float {
+        return Double(float)
+    }
+    if let int = value as? Int {
+        return Double(int)
+    }
+    if let number = value as? NSNumber {
+        return number.doubleValue
+    }
+    if let string = value as? String, let double = Double(string) {
+        return double
+    }
+    return fallback
+}
+
+public func gsxScene3DSpreadInt(_ values: [String: Any], _ key: String, _ fallback: Int) -> Int {
+    guard let value = values[key] else {
+        return fallback
+    }
+    if let int = value as? Int {
+        return int
+    }
+    if let double = value as? Double {
+        return Int(double)
+    }
+    if let float = value as? Float {
+        return Int(float)
+    }
+    if let number = value as? NSNumber {
+        return number.intValue
+    }
+    if let string = value as? String, let int = Int(string) {
+        return int
+    }
+    return fallback
+}
+
+public func gsxScene3DSpreadBool(_ values: [String: Any], _ key: String, _ fallback: Bool) -> Bool {
+    guard let value = values[key] else {
+        return fallback
+    }
+    if let bool = value as? Bool {
+        return bool
+    }
+    if let number = value as? NSNumber {
+        return number.boolValue
+    }
+    if let string = value as? String {
+        switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1", "yes", "on":
+            return true
+        case "false", "0", "no", "off":
+            return false
+        default:
+            return fallback
+        }
+    }
+    return fallback
+}
+
 public struct GSXScene3DNode: Identifiable {
     public var id: String
     public var tag: String

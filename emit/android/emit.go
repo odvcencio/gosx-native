@@ -48,6 +48,12 @@ func Emit(mod *nir.Module, w io.Writer) error {
 			fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3DPostEffect")
 		}
 		fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3DScene")
+		if moduleHasScene3DSpreadAttrs(mod) {
+			fmt.Fprintln(w, "import com.gosx.nativekit.gsxScene3DSpreadBool")
+			fmt.Fprintln(w, "import com.gosx.nativekit.gsxScene3DSpreadFloat")
+			fmt.Fprintln(w, "import com.gosx.nativekit.gsxScene3DSpreadInt")
+			fmt.Fprintln(w, "import com.gosx.nativekit.gsxScene3DSpreadString")
+		}
 	}
 	fmt.Fprintln(w, "import com.gosx.nativekit.rememberGSXSignal")
 	fmt.Fprintln(w)
@@ -83,6 +89,74 @@ func moduleHasScene3DPostEffects(mod *nir.Module) bool {
 func moduleHasScene3DHTMLOverlays(mod *nir.Module) bool {
 	for _, c := range mod.Components {
 		if viewHasScene3DHTMLOverlays(c.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func moduleHasScene3DSpreadAttrs(mod *nir.Module) bool {
+	for _, c := range mod.Components {
+		if viewHasScene3DSpreadAttrs(c.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func viewHasScene3DSpreadAttrs(v nir.View) bool {
+	switch n := v.(type) {
+	case *nir.Element:
+		if attrsHaveScene3DSpreadCall(n.Attrs) {
+			return true
+		}
+		if n.Scene3D != nil {
+			for _, item := range n.Scene3D.Items {
+				if attrsHaveScene3DSpreadCall(item.Attrs) {
+					return true
+				}
+			}
+		}
+		for _, child := range n.Children {
+			if viewHasScene3DSpreadAttrs(child) {
+				return true
+			}
+		}
+	case *nir.Conditional:
+		for _, child := range n.Then {
+			if viewHasScene3DSpreadAttrs(child) {
+				return true
+			}
+		}
+		for _, child := range n.Else {
+			if viewHasScene3DSpreadAttrs(child) {
+				return true
+			}
+		}
+	case *nir.ComponentRef:
+		for _, child := range n.Children {
+			if viewHasScene3DSpreadAttrs(child) {
+				return true
+			}
+		}
+	case *nir.Loop:
+		for _, child := range n.Body {
+			if viewHasScene3DSpreadAttrs(child) {
+				return true
+			}
+		}
+		for _, child := range n.Empty {
+			if viewHasScene3DSpreadAttrs(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func attrsHaveScene3DSpreadCall(attrs []nir.Attr) bool {
+	for _, attr := range attrs {
+		if attr.Value.Kind == "call" && attr.Value.Call != nil && strings.HasPrefix(attr.Value.Call.Callee, "gsxScene3DSpread") {
 			return true
 		}
 	}
@@ -974,6 +1048,9 @@ func emitRxBlockWithEventBindings(b nir.RxBlock, bindings eventBindings) string 
 }
 
 func kotlinType(swiftType string) string {
+	if swiftType == "Map<String, Any>" {
+		return "Map<String, Any?>"
+	}
 	if strings.HasPrefix(swiftType, "[") && strings.HasSuffix(swiftType, "]") {
 		inner := strings.TrimSuffix(strings.TrimPrefix(swiftType, "["), "]")
 		return "List<" + kotlinType(inner) + ">"
@@ -997,7 +1074,7 @@ func attrExpr(n *nir.Element, name string) *nir.RxExpr {
 }
 
 func attrExprFromAttrs(attrs []nir.Attr, name string) *nir.RxExpr {
-	for i := range attrs {
+	for i := len(attrs) - 1; i >= 0; i-- {
 		if attrs[i].Name == name {
 			return &attrs[i].Value
 		}

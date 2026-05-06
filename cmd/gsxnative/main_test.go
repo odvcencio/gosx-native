@@ -71,6 +71,15 @@ func TestCheckIOSScene3DComputePasses(t *testing.T) {
 	}
 }
 
+func TestCheckIOSScene3DSpreadPasses(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "check", "ios", "../../testdata/corpus/go/scene3d_spread.gsx")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstderr:\n%s", err, stderr.String())
+	}
+}
+
 func TestEmitIOSCounterPrintsSwift(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "emit", "ios", "../../testdata/corpus/swift/counter.swift.gsx")
 	var out bytes.Buffer
@@ -108,6 +117,20 @@ func TestEmitAndroidScene3DPrintsRuntimeSurface(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "GSXScene3D(scene = GSXScene3DScene(") || !strings.Contains(out.String(), `GSXScene3DNode(id = "hero", tag = "mesh"`) {
 		t.Fatalf("expected Scene3D Kotlin surface, got:\n%s", out.String())
+	}
+}
+
+func TestEmitScene3DSpreadPrintsRuntimeSurface(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/go/scene3d_spread.gsx")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "val mesh: Map<String, Any?>") || !strings.Contains(out.String(), "gsxScene3DSpreadString(props.mesh") {
+		t.Fatalf("expected Scene3D spread Kotlin surface, got:\n%s", out.String())
 	}
 }
 

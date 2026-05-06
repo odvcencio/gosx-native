@@ -467,6 +467,30 @@ func TestLowerScene3DCoversHTMLTagWithStaticChildren(t *testing.T) {
 	requireScene3DItemAttrLiteral(t, overlay, "html", "string", `<aside class="scene-hud__card"><strong>Hull</strong><span>stable</span></aside>`)
 }
 
+func TestLowerScene3DExpandsSpreadMapProps(t *testing.T) {
+	mod := lowerFixture(t, "scene3d_spread.gsx")
+	component := findComponent(t, mod, "SpreadDemo")
+	if got, want := component.Props.Fields, []nir.PropField{{Name: "mesh", Type: "Map<String, Any>"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("props = %+v, want %+v", got, want)
+	}
+	scene := requireElement(t, component.Body, "scene3d")
+	if scene.Scene3D == nil {
+		t.Fatalf("missing scene3d payload")
+	}
+	mesh := requireScene3DItem(t, scene.Scene3D.Items[0], "mesh")
+	id := requireScene3DItemAttr(t, mesh, "id")
+	if id.Kind != "call" || id.Call == nil || id.Call.Callee != "gsxScene3DSpreadString" {
+		t.Fatalf("id spread attr = %+v", id)
+	}
+	width := requireScene3DItemAttr(t, mesh, "width")
+	if width.Kind != "call" || width.Call == nil || width.Call.Callee != "gsxScene3DSpreadFloat" {
+		t.Fatalf("width spread attr = %+v", width)
+	}
+	if id.Call.Args[0].Kind != "ref" || id.Call.Args[0].Ref != "props.mesh" {
+		t.Fatalf("spread source = %+v", id.Call.Args[0])
+	}
+}
+
 func TestLowerScene3DRejectsHTMLWithoutMarkup(t *testing.T) {
 	_, err := LowerSource([]byte(`package scene3dhtml
 

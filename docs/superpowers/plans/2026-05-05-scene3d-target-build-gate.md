@@ -23,6 +23,7 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - `<PostFX.*>` now lowers into canonical `scene.IR.PostFX`, has source goldens for iOS and Android, and is included in the default conformance gate as preserved scene metadata.
 - `<ComputeParticles>` now lowers into canonical `scene.IR` kind `compute-particles`, emits visible native placeholder particles, has source goldens for iOS and Android, and is included in the default conformance gate.
 - `<Html>` now lowers static/literal markup into `scene.IR.Metadata["html"]`, emits simple native overlay text metadata, has source goldens for iOS and Android, and is included in the default conformance gate.
+- Scene3D `map[string]any` spread props now lower into typed runtime attribute reads for native source generation.
 - Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
 - Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
 - Add native visual post-fx passes after the durable backend is selected.

@@ -36,7 +36,7 @@ func emitComponent(w io.Writer, c *nir.Component) error {
 	if c.Props != nil {
 		fmt.Fprintln(w, "    public struct Props {")
 		for _, f := range c.Props.Fields {
-			fmt.Fprintf(w, "        public var %s: %s\n", f.Name, f.Type)
+			fmt.Fprintf(w, "        public var %s: %s\n", f.Name, swiftType(f.Type))
 		}
 		fmt.Fprintln(w, "    }")
 		fmt.Fprintln(w, "    public let props: Props")
@@ -727,12 +727,21 @@ func attrExpr(n *nir.Element, name string) *nir.RxExpr {
 }
 
 func attrExprFromAttrs(attrs []nir.Attr, name string) *nir.RxExpr {
-	for i := range attrs {
+	for i := len(attrs) - 1; i >= 0; i-- {
 		if attrs[i].Name == name {
 			return &attrs[i].Value
 		}
 	}
 	return nil
+}
+
+func swiftType(typ string) string {
+	switch typ {
+	case "Map<String, Any>":
+		return "[String: Any]"
+	default:
+		return typ
+	}
 }
 
 func literalAttr(n *nir.Element, name string) string {

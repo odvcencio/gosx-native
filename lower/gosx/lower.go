@@ -285,12 +285,12 @@ func (l *lowerer) lowerScene3DView(node *gosxir.Node) (nir.View, error) {
 		Span: irSpan(node.Span),
 	}
 	for _, attr := range node.Attrs {
-		loweredAttr, ok, err := l.lowerScene3DAttr(node, attr)
+		loweredAttrs, ok, err := l.lowerScene3DAttr(node, attr)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			element.Attrs = append(element.Attrs, loweredAttr)
+			element.Attrs = append(element.Attrs, loweredAttrs...)
 		}
 	}
 	if element.Tag != "scene3d" {
@@ -337,12 +337,12 @@ func (l *lowerer) lowerScene3DItem(id gosxir.NodeID) (nir.Scene3DItem, bool, err
 		Span: irSpan(node.Span),
 	}
 	for _, attr := range node.Attrs {
-		loweredAttr, ok, err := l.lowerScene3DAttr(node, attr)
+		loweredAttrs, ok, err := l.lowerScene3DAttr(node, attr)
 		if err != nil {
 			return nir.Scene3DItem{}, false, err
 		}
 		if ok {
-			item.Attrs = append(item.Attrs, loweredAttr)
+			item.Attrs = append(item.Attrs, loweredAttrs...)
 		}
 	}
 	if len(node.Children) > 0 {
@@ -456,33 +456,174 @@ func scene3DHasHTMLAttr(attrs []nir.Attr) bool {
 	return false
 }
 
-func (l *lowerer) lowerScene3DAttr(node *gosxir.Node, attr gosxir.Attr) (nir.Attr, bool, error) {
+func (l *lowerer) lowerScene3DAttr(node *gosxir.Node, attr gosxir.Attr) ([]nir.Attr, bool, error) {
 	if attr.IsEvent {
-		return nir.Attr{}, false, fmt.Errorf("Scene3D attribute %q cannot be an event handler", attr.Name)
+		return nil, false, fmt.Errorf("Scene3D attribute %q cannot be an event handler", attr.Name)
 	}
 	switch attr.Kind {
 	case gosxir.AttrStatic:
-		return nir.Attr{
+		return []nir.Attr{{
 			Name:  attr.Name,
 			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: attr.Value}},
 			Span:  irSpan(node.Span),
-		}, true, nil
+		}}, true, nil
 	case gosxir.AttrBool:
-		return nir.Attr{
+		return []nir.Attr{{
 			Name:  attr.Name,
 			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "bool", Value: "true"}},
 			Span:  irSpan(node.Span),
-		}, true, nil
+		}}, true, nil
 	case gosxir.AttrExpr:
 		expr, err := l.lowerRxExpr(attr.Expr)
 		if err != nil {
-			return nir.Attr{}, false, err
+			return nil, false, err
 		}
-		return nir.Attr{Name: attr.Name, Value: *expr, Span: irSpan(node.Span)}, true, nil
+		return []nir.Attr{{Name: attr.Name, Value: *expr, Span: irSpan(node.Span)}}, true, nil
 	case gosxir.AttrSpread:
-		return nir.Attr{}, false, fmt.Errorf("Scene3D spread props are not supported by native lowering yet")
+		attrs, err := l.lowerScene3DSpreadAttrs(node, attr)
+		if err != nil {
+			return nil, false, err
+		}
+		return attrs, len(attrs) > 0, nil
 	default:
-		return nir.Attr{}, false, nil
+		return nil, false, nil
+	}
+}
+
+type scene3DSpreadAttrSpec struct {
+	Name     string
+	Type     string
+	Fallback string
+}
+
+func (l *lowerer) lowerScene3DSpreadAttrs(node *gosxir.Node, attr gosxir.Attr) ([]nir.Attr, error) {
+	expr, err := l.lowerRxExpr(attr.Expr)
+	if err != nil {
+		return nil, err
+	}
+	if expr.Kind != "ref" || expr.Ref == "" {
+		return nil, fmt.Errorf("Scene3D spread props must be a props map reference")
+	}
+	if typ := l.inferExprType(expr); typ != "Map<String, Any>" {
+		return nil, fmt.Errorf("Scene3D spread props must be map[string]any, got %s", typ)
+	}
+	specs := scene3DSpreadAttrSpecs(node.Tag)
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("Scene3D spread props are not supported for <%s>", node.Tag)
+	}
+	out := make([]nir.Attr, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, nir.Attr{
+			Name:  spec.Name,
+			Value: scene3DSpreadAttrExpr(*expr, spec),
+			Span:  irSpan(node.Span),
+		})
+	}
+	return out, nil
+}
+
+func scene3DSpreadAttrExpr(source nir.RxExpr, spec scene3DSpreadAttrSpec) nir.RxExpr {
+	return nir.RxExpr{
+		Kind: "call",
+		Call: &nir.Call{
+			Callee: "gsxScene3DSpread" + upperFirst(spec.Type),
+			Args: []nir.RxExpr{
+				source,
+				{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: spec.Name}},
+				{Kind: "literal", Literal: &nir.Literal{Type: spec.Type, Value: spec.Fallback}},
+			},
+		},
+	}
+}
+
+func scene3DSpreadAttrSpecs(tag string) []scene3DSpreadAttrSpec {
+	commonNode := []scene3DSpreadAttrSpec{
+		{Name: "id", Type: "string", Fallback: ""},
+		{Name: "kind", Type: "string", Fallback: ""},
+		{Name: "color", Type: "string", Fallback: "#8de1ff"},
+		{Name: "x", Type: "float", Fallback: "0.0"},
+		{Name: "y", Type: "float", Fallback: "0.0"},
+		{Name: "z", Type: "float", Fallback: "0.0"},
+		{Name: "width", Type: "float", Fallback: "1.0"},
+		{Name: "height", Type: "float", Fallback: "1.0"},
+		{Name: "depth", Type: "float", Fallback: "1.0"},
+		{Name: "count", Type: "int", Fallback: "0"},
+		{Name: "size", Type: "float", Fallback: "0.0"},
+	}
+	switch strings.ToLower(strings.TrimSpace(tag)) {
+	case "scene3d":
+		return []scene3DSpreadAttrSpec{
+			{Name: "width", Type: "float", Fallback: "640.0"},
+			{Name: "height", Type: "float", Fallback: "360.0"},
+			{Name: "background", Type: "string", Fallback: "#101820"},
+		}
+	case "camera":
+		return []scene3DSpreadAttrSpec{
+			{Name: "kind", Type: "string", Fallback: "perspective"},
+			{Name: "x", Type: "float", Fallback: "0.0"},
+			{Name: "y", Type: "float", Fallback: "0.0"},
+			{Name: "z", Type: "float", Fallback: "0.0"},
+			{Name: "fov", Type: "float", Fallback: "0.0"},
+			{Name: "near", Type: "float", Fallback: "0.0"},
+			{Name: "far", Type: "float", Fallback: "0.0"},
+		}
+	case "environment":
+		return []scene3DSpreadAttrSpec{
+			{Name: "background", Type: "string", Fallback: ""},
+			{Name: "ambientColor", Type: "string", Fallback: ""},
+			{Name: "ambientIntensity", Type: "float", Fallback: "0.0"},
+		}
+	case "mesh", "model", "points", "instancedmesh", "computeparticles":
+		return commonNode
+	case "directionallight", "pointlight", "ambientlight", "spotlight", "hemispherelight":
+		return []scene3DSpreadAttrSpec{
+			{Name: "id", Type: "string", Fallback: ""},
+			{Name: "color", Type: "string", Fallback: "#ffffff"},
+			{Name: "intensity", Type: "float", Fallback: "1.0"},
+			{Name: "x", Type: "float", Fallback: "0.0"},
+			{Name: "y", Type: "float", Fallback: "0.0"},
+			{Name: "z", Type: "float", Fallback: "0.0"},
+		}
+	case "html":
+		return []scene3DSpreadAttrSpec{
+			{Name: "id", Type: "string", Fallback: ""},
+			{Name: "html", Type: "string", Fallback: ""},
+			{Name: "className", Type: "string", Fallback: ""},
+			{Name: "x", Type: "float", Fallback: "0.0"},
+			{Name: "y", Type: "float", Fallback: "0.0"},
+			{Name: "z", Type: "float", Fallback: "0.0"},
+			{Name: "width", Type: "float", Fallback: "1.8"},
+			{Name: "height", Type: "float", Fallback: "0.72"},
+			{Name: "opacity", Type: "float", Fallback: "1.0"},
+			{Name: "offsetX", Type: "float", Fallback: "0.0"},
+			{Name: "offsetY", Type: "float", Fallback: "0.0"},
+			{Name: "pointerEvents", Type: "string", Fallback: "none"},
+			{Name: "occlude", Type: "bool", Fallback: "false"},
+		}
+	case "postfx.bloom":
+		return []scene3DSpreadAttrSpec{
+			{Name: "threshold", Type: "float", Fallback: "0.0"},
+			{Name: "intensity", Type: "float", Fallback: "0.0"},
+			{Name: "radius", Type: "float", Fallback: "0.0"},
+		}
+	case "postfx.vignette":
+		return []scene3DSpreadAttrSpec{
+			{Name: "intensity", Type: "float", Fallback: "0.0"},
+			{Name: "radius", Type: "float", Fallback: "0.0"},
+		}
+	case "postfx.colorgrading":
+		return []scene3DSpreadAttrSpec{
+			{Name: "saturation", Type: "float", Fallback: "0.0"},
+			{Name: "contrast", Type: "float", Fallback: "0.0"},
+			{Name: "exposure", Type: "float", Fallback: "0.0"},
+		}
+	case "postfx.tonemap":
+		return []scene3DSpreadAttrSpec{
+			{Name: "mode", Type: "string", Fallback: ""},
+			{Name: "exposure", Type: "float", Fallback: "0.0"},
+		}
+	default:
+		return nil
 	}
 }
 
@@ -1187,6 +1328,13 @@ func nativeTypeFromGoType(typ string) string {
 		}
 		return "[" + elem + "]"
 	}
+	if strings.HasPrefix(typ, "map[") {
+		key, value, ok := parseGoMapType(typ)
+		if ok && key == "string" && (value == "any" || value == "interface{}") {
+			return "Map<String, Any>"
+		}
+		return typ
+	}
 	switch typ {
 	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
 		return "Int"
@@ -1201,6 +1349,23 @@ func nativeTypeFromGoType(typ string) string {
 	default:
 		return typ
 	}
+}
+
+func parseGoMapType(typ string) (string, string, bool) {
+	typ = strings.TrimSpace(typ)
+	if !strings.HasPrefix(typ, "map[") {
+		return "", "", false
+	}
+	end := strings.IndexByte(typ, ']')
+	if end < 0 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(strings.TrimPrefix(typ[:end], "map["))
+	value := strings.TrimSpace(typ[end+1:])
+	if key == "" || value == "" {
+		return "", "", false
+	}
+	return key, value, true
 }
 
 func numericType(left, right string) string {
@@ -1330,6 +1495,15 @@ func lowerFirst(s string) string {
 	}
 	runes := []rune(s)
 	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return ""
+	}
+	runes := []rune(s)
+	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
 }
 

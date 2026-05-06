@@ -983,7 +983,8 @@ func identityTransforms(count int) []float64 {
 }
 
 func attr(attrs []nir.Attr, name string) (nir.RxExpr, bool) {
-	for _, attr := range attrs {
+	for i := len(attrs) - 1; i >= 0; i-- {
+		attr := attrs[i]
 		if attr.Name == name {
 			return attr.Value, true
 		}

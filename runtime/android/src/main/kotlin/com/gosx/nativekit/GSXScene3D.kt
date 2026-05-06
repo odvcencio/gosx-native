@@ -69,6 +69,37 @@ data class GSXScene3DPostEffect(
     val maxBlur: Double = 0.0,
 )
 
+fun gsxScene3DSpreadString(values: Map<String, Any?>, key: String, fallback: String): String {
+    val value = values[key] ?: return fallback
+    return value as? String ?: value.toString()
+}
+
+fun gsxScene3DSpreadFloat(values: Map<String, Any?>, key: String, fallback: Double): Double =
+    when (val value = values[key]) {
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull() ?: fallback
+        else -> fallback
+    }
+
+fun gsxScene3DSpreadInt(values: Map<String, Any?>, key: String, fallback: Int): Int =
+    when (val value = values[key]) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull() ?: fallback
+        else -> fallback
+    }
+
+fun gsxScene3DSpreadBool(values: Map<String, Any?>, key: String, fallback: Boolean): Boolean =
+    when (val value = values[key]) {
+        is Boolean -> value
+        is Number -> value.toInt() != 0
+        is String -> when (value.trim().lowercase()) {
+            "true", "1", "yes", "on" -> true
+            "false", "0", "no", "off" -> false
+            else -> fallback
+        }
+        else -> fallback
+    }
+
 data class GSXScene3DNode(
     val id: String,
     val tag: String,
