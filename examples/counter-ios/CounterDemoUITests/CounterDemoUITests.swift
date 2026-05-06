@@ -9,6 +9,7 @@ final class CounterDemoUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
+        XCTAssertTrue(app.descendants(matching: .any)["Scene3D"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["0"].waitForExistence(timeout: 5))
 
         app.buttons["+"].tap()

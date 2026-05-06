@@ -77,6 +77,7 @@ public struct GSXScene3DView: View {
         }
         .aspectRatio(scene.width / max(scene.height, 1), contentMode: .fit)
         .accessibilityLabel("Scene3D")
+        .accessibilityIdentifier("Scene3D")
     }
 
     private func draw(_ node: GSXScene3DNode, at index: Int, total: Int, in context: GraphicsContext, size: CGSize) {

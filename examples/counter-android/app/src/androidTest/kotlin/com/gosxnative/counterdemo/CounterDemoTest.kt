@@ -2,6 +2,7 @@ package com.gosxnative.counterdemo
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +17,7 @@ class CounterDemoTest {
 
     @Test
     fun counterButtonsUpdateCount() {
+        compose.onNodeWithTag("Scene3D").assertIsDisplayed()
         compose.onNodeWithText("0").assertIsDisplayed()
         compose.onNodeWithText("+").performClick()
         compose.onNodeWithText("1").assertIsDisplayed()

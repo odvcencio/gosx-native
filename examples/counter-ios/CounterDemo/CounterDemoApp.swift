@@ -5,7 +5,11 @@ import GSXNativeKit
 struct CounterDemoApp: App {
     var body: some Scene {
         WindowGroup {
-            Counter(props: .init(start: 0))
+            VStack(spacing: 16) {
+                Counter(props: .init(start: 0))
+                SceneDemo(props: .init(width: 320, height: 180))
+            }
+            .padding()
         }
     }
 }
