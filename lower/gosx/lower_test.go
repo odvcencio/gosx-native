@@ -380,19 +380,25 @@ func TestLowerScene3DCoversComposableSceneTags(t *testing.T) {
 	requireAttrLiteral(t, scene, "class", "string", "native-scene")
 	requireAttrRef(t, scene, "width", "props.width")
 	requireAttrRef(t, scene, "height", "props.height")
-	if got := len(scene.Children); got != 6 {
-		t.Fatalf("scene children = %d, want 6", got)
+	if got := len(scene.Children); got != 0 {
+		t.Fatalf("scene generic children = %d, want 0", got)
 	}
-	camera := requireElement(t, scene.Children[0], "camera")
-	requireAttrLiteral(t, camera, "z", "int", "7")
-	requireAttrLiteral(t, camera, "near", "float", "0.1")
-	requireElement(t, scene.Children[1], "environment")
-	requireElement(t, scene.Children[2], "directionalLight")
-	mesh := requireElement(t, scene.Children[3], "mesh")
-	requireAttrLiteral(t, mesh, "kind", "string", "box")
-	model := requireElement(t, scene.Children[4], "model")
-	requireAttrLiteral(t, model, "static", "bool", "true")
-	requireElement(t, scene.Children[5], "points")
+	if scene.Scene3D == nil {
+		t.Fatalf("missing scene3d payload")
+	}
+	if got := len(scene.Scene3D.Items); got != 6 {
+		t.Fatalf("scene3d items = %d, want 6", got)
+	}
+	camera := requireScene3DItem(t, scene.Scene3D.Items[0], "camera")
+	requireScene3DItemAttrLiteral(t, camera, "z", "int", "7")
+	requireScene3DItemAttrLiteral(t, camera, "near", "float", "0.1")
+	requireScene3DItem(t, scene.Scene3D.Items[1], "environment")
+	requireScene3DItem(t, scene.Scene3D.Items[2], "directionalLight")
+	mesh := requireScene3DItem(t, scene.Scene3D.Items[3], "mesh")
+	requireScene3DItemAttrLiteral(t, mesh, "kind", "string", "box")
+	model := requireScene3DItem(t, scene.Scene3D.Items[4], "model")
+	requireScene3DItemAttrLiteral(t, model, "static", "bool", "true")
+	requireScene3DItem(t, scene.Scene3D.Items[5], "points")
 }
 
 func lowerFixture(t *testing.T, name string) *nir.Module {
@@ -439,6 +445,14 @@ func requireElement(t *testing.T, view nir.View, tag string) *nir.Element {
 	return element
 }
 
+func requireScene3DItem(t *testing.T, item nir.Scene3DItem, tag string) nir.Scene3DItem {
+	t.Helper()
+	if item.Tag != tag {
+		t.Fatalf("scene3d item tag = %q, want %q", item.Tag, tag)
+	}
+	return item
+}
+
 func requireHandlerTargets(t *testing.T, element *nir.Element, targets []string) {
 	t.Helper()
 	requireHandlerEventTargets(t, element, "tap", targets)
@@ -480,6 +494,11 @@ func requireAttrLiteral(t *testing.T, element *nir.Element, name, typ, value str
 	requireLiteralValue(t, requireAttr(t, element, name), typ, value)
 }
 
+func requireScene3DItemAttrLiteral(t *testing.T, item nir.Scene3DItem, name, typ, value string) {
+	t.Helper()
+	requireLiteralValue(t, requireScene3DItemAttr(t, item, name), typ, value)
+}
+
 func requireAttr(t *testing.T, element *nir.Element, name string) *nir.RxExpr {
 	t.Helper()
 	for i := range element.Attrs {
@@ -488,6 +507,17 @@ func requireAttr(t *testing.T, element *nir.Element, name string) *nir.RxExpr {
 		}
 	}
 	t.Fatalf("missing attr %q on %+v", name, element.Attrs)
+	return nil
+}
+
+func requireScene3DItemAttr(t *testing.T, item nir.Scene3DItem, name string) *nir.RxExpr {
+	t.Helper()
+	for i := range item.Attrs {
+		if item.Attrs[i].Name == name {
+			return &item.Attrs[i].Value
+		}
+	}
+	t.Fatalf("missing attr %q on %+v", name, item.Attrs)
 	return nil
 }
 
@@ -609,6 +639,15 @@ func normalizeView(view nir.View) {
 		}
 		for _, child := range node.Children {
 			normalizeView(child)
+		}
+		if node.Scene3D != nil {
+			for i := range node.Scene3D.Items {
+				node.Scene3D.Items[i].Span = nir.Span{}
+				for j := range node.Scene3D.Items[i].Attrs {
+					node.Scene3D.Items[i].Attrs[j].Span = nir.Span{}
+					normalizeRxExpr(&node.Scene3D.Items[i].Attrs[j].Value)
+				}
+			}
 		}
 	case *nir.Text:
 		node.Span = nir.Span{}

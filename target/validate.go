@@ -144,6 +144,11 @@ func (v *validator) element(n *nir.Element) {
 		defer func() {
 			v.inScene3D = wasInScene3D
 		}()
+		if n.Scene3D != nil {
+			for _, item := range n.Scene3D.Items {
+				v.scene3DItem(item)
+			}
+		}
 		for _, child := range n.Children {
 			v.view(child)
 		}
@@ -156,6 +161,16 @@ func (v *validator) element(n *nir.Element) {
 	v.handlers(n.Tag, n.Handlers, n.Span)
 	for _, child := range n.Children {
 		v.view(child)
+	}
+}
+
+func (v *validator) scene3DItem(n nir.Scene3DItem) {
+	if !IsScene3DTag(n.Tag) {
+		v.add(n.Span, fmt.Sprintf("unsupported Scene3D item <%s>", n.Tag))
+		return
+	}
+	if !Scene3DNativeTagSupported(n.Tag) {
+		v.add(n.Span, fmt.Sprintf("Scene3D native backend does not support <%s> yet", Scene3DDisplayName(n.Tag)))
 	}
 }
 

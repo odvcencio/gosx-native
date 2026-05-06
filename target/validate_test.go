@@ -13,10 +13,12 @@ func TestValidateScene3DStaticSurfaceAccepted(t *testing.T) {
 			Name: "SceneDemo",
 			Body: &nir.Element{
 				Tag: "scene3d",
-				Children: []nir.View{
-					&nir.Element{Tag: "camera"},
-					&nir.Element{Tag: "mesh"},
-					&nir.Element{Tag: "points"},
+				Scene3D: &nir.Scene3DPayload{
+					Items: []nir.Scene3DItem{
+						{Tag: "camera"},
+						{Tag: "mesh"},
+						{Tag: "points"},
+					},
 				},
 			},
 		}},
@@ -32,8 +34,10 @@ func TestValidateScene3DUnsupportedTagReportsDiagnostic(t *testing.T) {
 			Name: "SceneDemo",
 			Body: &nir.Element{
 				Tag: "scene3d",
-				Children: []nir.View{
-					&nir.Element{Tag: "computeParticles"},
+				Scene3D: &nir.Scene3DPayload{
+					Items: []nir.Scene3DItem{
+						{Tag: "computeParticles"},
+					},
 				},
 			},
 		}},

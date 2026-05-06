@@ -292,16 +292,62 @@ func (l *lowerer) lowerScene3DView(node *gosxir.Node) (nir.View, error) {
 			element.Attrs = append(element.Attrs, loweredAttr)
 		}
 	}
+	if element.Tag != "scene3d" {
+		for _, childID := range node.Children {
+			child, err := l.lowerView(childID)
+			if err != nil {
+				return nil, err
+			}
+			if child != nil {
+				element.Children = append(element.Children, child)
+			}
+		}
+		return element, nil
+	}
+	element.Scene3D = &nir.Scene3DPayload{}
 	for _, childID := range node.Children {
-		child, err := l.lowerView(childID)
+		item, ok, err := l.lowerScene3DItem(childID)
 		if err != nil {
 			return nil, err
 		}
-		if child != nil {
-			element.Children = append(element.Children, child)
+		if ok {
+			element.Scene3D.Items = append(element.Scene3D.Items, item)
 		}
 	}
 	return element, nil
+}
+
+func (l *lowerer) lowerScene3DItem(id gosxir.NodeID) (nir.Scene3DItem, bool, error) {
+	if int(id) >= len(l.prog.Nodes) {
+		return nir.Scene3DItem{}, false, fmt.Errorf("node %d out of range", id)
+	}
+	node := l.prog.NodeAt(id)
+	if node.Kind == gosxir.NodeText || node.Kind == gosxir.NodeRawHTML {
+		if strings.TrimSpace(node.Text) == "" {
+			return nir.Scene3DItem{}, false, nil
+		}
+		return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D text children are not supported by native lowering yet")
+	}
+	if node.Kind != gosxir.NodeComponent || !target.IsScene3DTag(node.Tag) {
+		return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D child <%s> is not a supported scene tag", node.Tag)
+	}
+	if len(node.Children) > 0 {
+		return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D item <%s> children are not supported by native lowering yet", node.Tag)
+	}
+	item := nir.Scene3DItem{
+		Tag:  scene3DNativeTag(node.Tag),
+		Span: irSpan(node.Span),
+	}
+	for _, attr := range node.Attrs {
+		loweredAttr, ok, err := l.lowerScene3DAttr(node, attr)
+		if err != nil {
+			return nir.Scene3DItem{}, false, err
+		}
+		if ok {
+			item.Attrs = append(item.Attrs, loweredAttr)
+		}
+	}
+	return item, true, nil
 }
 
 func (l *lowerer) lowerScene3DAttr(node *gosxir.Node, attr gosxir.Attr) (nir.Attr, bool, error) {

@@ -39,8 +39,8 @@ func TestCompileGoSXScene3DPrintsNIR(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if !strings.Contains(out.String(), `"tag": "scene3d"`) || !strings.Contains(out.String(), `"tag": "mesh"`) {
-		t.Fatalf("expected Scene3D NIR tags, got:\n%s", out.String())
+	if !strings.Contains(out.String(), `"tag": "scene3d"`) || !strings.Contains(out.String(), `"scene3d": {`) || !strings.Contains(out.String(), `"tag": "mesh"`) {
+		t.Fatalf("expected Scene3D NIR payload, got:\n%s", out.String())
 	}
 }
 

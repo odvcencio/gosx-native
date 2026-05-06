@@ -123,7 +123,7 @@ func emitScene3D(n *nir.Element, indent int) string {
 	pad := strings.Repeat("    ", indent)
 	childPad := strings.Repeat("    ", indent+1)
 	grandchildPad := strings.Repeat("    ", indent+2)
-	nodes := scene3DNodes(n.Children)
+	nodes := scene3DNodes(n)
 
 	var sb strings.Builder
 	sb.WriteString(pad)
@@ -159,38 +159,60 @@ func emitScene3D(n *nir.Element, indent int) string {
 	return sb.String()
 }
 
-func emitScene3DNode(n *nir.Element, index int) string {
-	id := scene3DStringAttr(n, "id", fmt.Sprintf("%s-%d", n.Tag, index))
+type scene3DNode struct {
+	Tag   string
+	Attrs []nir.Attr
+}
+
+func emitScene3DNode(n scene3DNode, index int) string {
+	id := scene3DStringAttrFromAttrs(n.Attrs, "id", fmt.Sprintf("%s-%d", n.Tag, index))
 	return fmt.Sprintf(
 		"GSXScene3DNode(id: %s, tag: %s, kind: %s, color: %s, x: %s, y: %s, z: %s, width: %s, height: %s, depth: %s, count: %s, size: %s)",
 		id,
 		strconv.Quote(n.Tag),
-		scene3DStringAttr(n, "kind", ""),
-		scene3DStringAttr(n, "color", "#8de1ff"),
-		scene3DDoubleAttr(n, "x", "0"),
-		scene3DDoubleAttr(n, "y", "0"),
-		scene3DDoubleAttr(n, "z", "0"),
-		scene3DDoubleAttr(n, "width", "1"),
-		scene3DDoubleAttr(n, "height", "1"),
-		scene3DDoubleAttr(n, "depth", "1"),
-		scene3DIntAttr(n, "count", "0"),
-		scene3DDoubleAttr(n, "size", "0"),
+		scene3DStringAttrFromAttrs(n.Attrs, "kind", ""),
+		scene3DStringAttrFromAttrs(n.Attrs, "color", "#8de1ff"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "x", "0"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "y", "0"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "z", "0"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "width", "1"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "height", "1"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "depth", "1"),
+		scene3DIntAttrFromAttrs(n.Attrs, "count", "0"),
+		scene3DDoubleAttrFromAttrs(n.Attrs, "size", "0"),
 	)
 }
 
-func scene3DNodes(children []nir.View) []*nir.Element {
-	nodes := make([]*nir.Element, 0, len(children))
-	for _, child := range children {
+func scene3DNodes(n *nir.Element) []scene3DNode {
+	if n.Scene3D != nil {
+		nodes := make([]scene3DNode, 0, len(n.Scene3D.Items))
+		for _, item := range n.Scene3D.Items {
+			if scene3DRenderableNode(item.Tag) {
+				nodes = append(nodes, scene3DNode{Tag: item.Tag, Attrs: item.Attrs})
+			}
+		}
+		return nodes
+	}
+	nodes := make([]scene3DNode, 0, len(n.Children))
+	for _, child := range n.Children {
 		element, ok := child.(*nir.Element)
 		if !ok {
 			continue
 		}
-		switch element.Tag {
-		case "mesh", "model", "points":
-			nodes = append(nodes, element)
+		if scene3DRenderableNode(element.Tag) {
+			nodes = append(nodes, scene3DNode{Tag: element.Tag, Attrs: element.Attrs})
 		}
 	}
 	return nodes
+}
+
+func scene3DRenderableNode(tag string) bool {
+	switch tag {
+	case "mesh", "model", "points":
+		return true
+	default:
+		return false
+	}
 }
 
 func emitComponentRef(n *nir.ComponentRef) string {
@@ -557,9 +579,13 @@ func emitRxBlockWithEventBindings(b nir.RxBlock, bindings eventBindings) string 
 }
 
 func attrExpr(n *nir.Element, name string) *nir.RxExpr {
-	for i := range n.Attrs {
-		if n.Attrs[i].Name == name {
-			return &n.Attrs[i].Value
+	return attrExprFromAttrs(n.Attrs, name)
+}
+
+func attrExprFromAttrs(attrs []nir.Attr, name string) *nir.RxExpr {
+	for i := range attrs {
+		if attrs[i].Name == name {
+			return &attrs[i].Value
 		}
 	}
 	return nil
@@ -574,7 +600,11 @@ func literalAttr(n *nir.Element, name string) string {
 }
 
 func scene3DStringAttr(n *nir.Element, name, fallback string) string {
-	expr := attrExpr(n, name)
+	return scene3DStringAttrFromAttrs(n.Attrs, name, fallback)
+}
+
+func scene3DStringAttrFromAttrs(attrs []nir.Attr, name, fallback string) string {
+	expr := attrExprFromAttrs(attrs, name)
 	if expr == nil {
 		return strconv.Quote(fallback)
 	}
@@ -582,7 +612,11 @@ func scene3DStringAttr(n *nir.Element, name, fallback string) string {
 }
 
 func scene3DDoubleAttr(n *nir.Element, name, fallback string) string {
-	expr := attrExpr(n, name)
+	return scene3DDoubleAttrFromAttrs(n.Attrs, name, fallback)
+}
+
+func scene3DDoubleAttrFromAttrs(attrs []nir.Attr, name, fallback string) string {
+	expr := attrExprFromAttrs(attrs, name)
 	if expr == nil {
 		return fallback
 	}
@@ -593,7 +627,11 @@ func scene3DDoubleAttr(n *nir.Element, name, fallback string) string {
 }
 
 func scene3DIntAttr(n *nir.Element, name, fallback string) string {
-	expr := attrExpr(n, name)
+	return scene3DIntAttrFromAttrs(n.Attrs, name, fallback)
+}
+
+func scene3DIntAttrFromAttrs(attrs []nir.Attr, name, fallback string) string {
+	expr := attrExprFromAttrs(attrs, name)
 	if expr == nil {
 		return fallback
 	}

@@ -17,7 +17,7 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - Static `<Mesh>`, `<Model>`, and `<Points>` now emit into native runtime Scene3D views.
 - Checked-in iOS and Android demo app shells now include generated Scene3D sources, and CI regenerates, diffs, and compiles those sources.
 - The iOS and Android smoke apps mount the generated SceneDemo and assert the native Scene3D accessibility/test-tag surface exists.
-- Add native Scene3D NIR payloads instead of generic element placeholders.
+- Scene3D now lowers into native NIR payloads instead of generic element children.
 - Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
 - Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
 - Add native support for `<Html>`, `<InstancedMesh>`, `<ComputeParticles>`, and `<PostFX.*>` after the durable backend is selected.
