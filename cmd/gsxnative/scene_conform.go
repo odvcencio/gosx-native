@@ -95,6 +95,13 @@ func sceneConformSource(source string, opts sceneConformOptions) error {
 	if err := compareOrUpdate(filepath.Join(opts.goldenDir, base+".ir.json"), irJSON, opts.update); err != nil {
 		return err
 	}
+	renderJSON, err := nativescene3d.RenderSignature(ir)
+	if err != nil {
+		return err
+	}
+	if err := compareOrUpdate(filepath.Join(opts.goldenDir, base+".render.json"), renderJSON, opts.update); err != nil {
+		return err
+	}
 	for _, tgt := range sceneConformTargets(opts.target) {
 		if err := target.Validate(mod, tgt); err != nil {
 			return err

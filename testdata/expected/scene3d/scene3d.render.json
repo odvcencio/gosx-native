@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 640,
+    "height": 360
+  },
+  "background": "#101820",
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "commands": [
+    {
+      "op": "light",
+      "id": "sun",
+      "kind": "directional",
+      "color": "#fff1d6",
+      "intensity": 1.2,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "direction": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    {
+      "op": "node",
+      "id": "hero",
+      "tag": "mesh",
+      "kind": "box",
+      "shape": "roundRect",
+      "color": "#8de1ff",
+      "materialKind": "standard",
+      "alpha": 0.86,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "size": {
+        "width": 1.8,
+        "height": 1.2,
+        "depth": 0.8
+      },
+      "screen": {
+        "x": 101.68,
+        "y": 141.12,
+        "width": 116.64,
+        "height": 77.76
+      }
+    },
+    {
+      "op": "node",
+      "id": "ship",
+      "tag": "model",
+      "shape": "oval",
+      "source": "/models/ship.glb",
+      "color": "#8de1ff",
+      "materialKind": "standard",
+      "alpha": 0.82,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "size": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      },
+      "screen": {
+        "x": 287.6,
+        "y": 147.6,
+        "width": 64.8,
+        "height": 64.8
+      }
+    },
+    {
+      "op": "node",
+      "id": "stars",
+      "tag": "points",
+      "shape": "circles",
+      "color": "#8de1ff",
+      "alpha": 0.9,
+      "count": 2,
+      "visibleCount": 2,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "size": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      },
+      "screen": {
+        "x": 447.6,
+        "y": 147.6,
+        "width": 64.8,
+        "height": 64.8
+      },
+      "particle": {
+        "radius": 4
+      }
+    }
+  ]
+}

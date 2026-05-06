@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 640,
+    "height": 360
+  },
+  "background": "#101820",
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "commands": [
+    {
+      "op": "node",
+      "id": "sparks",
+      "tag": "computeParticles",
+      "kind": "spiral",
+      "shape": "spiralParticles",
+      "color": "#ffd48f",
+      "alpha": 0.72,
+      "count": 128,
+      "visibleCount": 48,
+      "position": {
+        "x": 0,
+        "y": 0.2,
+        "z": 0
+      },
+      "size": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      },
+      "screen": {
+        "x": 287.6,
+        "y": 142.8,
+        "width": 64.8,
+        "height": 64.8
+      },
+      "particle": {
+        "emitterKind": "spiral",
+        "radius": 2
+      }
+    }
+  ]
+}

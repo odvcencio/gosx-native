@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 640,
+    "height": 360
+  },
+  "background": "#080f1f",
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "commands": [
+    {
+      "op": "node",
+      "id": "hero",
+      "tag": "mesh",
+      "kind": "box",
+      "shape": "roundRect",
+      "color": "#8de1ff",
+      "materialKind": "standard",
+      "alpha": 0.86,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "size": {
+        "width": 1.4,
+        "height": 1,
+        "depth": 0.7
+      },
+      "screen": {
+        "x": 274.64,
+        "y": 147.6,
+        "width": 90.72,
+        "height": 64.8
+      }
+    },
+    {
+      "op": "postfx",
+      "kind": "bloom",
+      "color": "#ffffff",
+      "alpha": 0.224,
+      "effect": {
+        "threshold": 0.72,
+        "intensity": 1.4,
+        "radius": 0.25,
+        "scale": 0.5,
+        "alpha": 0.224,
+        "lineWidth": 8
+      }
+    },
+    {
+      "op": "postfx",
+      "kind": "vignette",
+      "color": "#000000",
+      "alpha": 0.161,
+      "effect": {
+        "intensity": 0.35,
+        "alpha": 0.161,
+        "thickness": 43.2
+      }
+    },
+    {
+      "op": "postfx",
+      "kind": "colorGrade",
+      "color": "#ffd18a",
+      "alpha": 0.0137,
+      "effect": {
+        "saturation": 1.1,
+        "contrast": 1.05,
+        "exposure": 0.08,
+        "alpha": 0.0137,
+        "tint": "#ffd18a"
+      }
+    },
+    {
+      "op": "postfx",
+      "kind": "toneMapping",
+      "color": "#ffffff",
+      "effect": {
+        "exposure": 1,
+        "mode": "aces"
+      }
+    }
+  ]
+}
