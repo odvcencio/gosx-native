@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "environment": {
+    "background": "#080f1f"
+  },
+  "materials": [
+    {
+      "kind": "standard",
+      "color": "#8de1ff"
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "mesh",
+      "id": "hero",
+      "transform": {},
+      "mesh": {
+        "kind": "box",
+        "width": 1.4,
+        "height": 1,
+        "depth": 0.7
+      }
+    }
+  ],
+  "postFX": [
+    {
+      "kind": "bloom",
+      "threshold": 0.72,
+      "intensity": 1.4,
+      "radius": 0.25,
+      "scale": 0.5
+    },
+    {
+      "kind": "vignette",
+      "intensity": 0.35
+    },
+    {
+      "kind": "colorGrade",
+      "saturation": 1.1,
+      "contrast": 1.05,
+      "exposure": 0.08
+    },
+    {
+      "kind": "toneMapping",
+      "exposure": 1,
+      "mode": "aces"
+    }
+  ]
+}

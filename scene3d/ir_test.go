@@ -102,6 +102,54 @@ func TestCanonicalIRRejectsDynamicConsumedAttribute(t *testing.T) {
 	}
 }
 
+func TestCanonicalIRLowersPostFXEffects(t *testing.T) {
+	sceneElement := &nir.Element{
+		Tag: "scene3d",
+		Scene3D: &nir.Scene3DPayload{Items: []nir.Scene3DItem{
+			{
+				Tag: "postFX.Bloom",
+				Attrs: []nir.Attr{
+					literalAttr("threshold", "float", "0.72"),
+					literalAttr("intensity", "float", "1.4"),
+					literalAttr("radius", "float", "0.25"),
+				},
+			},
+			{
+				Tag: "PostFX.ColorGrading",
+				Attrs: []nir.Attr{
+					literalAttr("saturation", "float", "1.1"),
+					literalAttr("contrast", "float", "1.05"),
+					literalAttr("exposure", "float", "0.08"),
+				},
+			},
+			{
+				Tag: "PostFX.Tonemap",
+				Attrs: []nir.Attr{
+					literalAttr("mode", "string", "aces"),
+					literalAttr("exposure", "float", "1.0"),
+				},
+			},
+		}},
+	}
+
+	ir, err := CanonicalIR(sceneElement)
+	if err != nil {
+		t.Fatalf("CanonicalIR: %v", err)
+	}
+	if len(ir.PostFX) != 3 {
+		t.Fatalf("postFX len = %d, want 3", len(ir.PostFX))
+	}
+	if ir.PostFX[0].Kind != "bloom" || ir.PostFX[0].Threshold != 0.72 || ir.PostFX[0].Intensity != 1.4 || ir.PostFX[0].Radius != 0.25 {
+		t.Fatalf("bloom effect = %+v", ir.PostFX[0])
+	}
+	if ir.PostFX[1].Kind != "colorGrade" || ir.PostFX[1].Saturation != 1.1 || ir.PostFX[1].Contrast != 1.05 || ir.PostFX[1].Exposure != 0.08 {
+		t.Fatalf("color grading effect = %+v", ir.PostFX[1])
+	}
+	if ir.PostFX[2].Kind != "toneMapping" || ir.PostFX[2].Mode != "aces" || ir.PostFX[2].Exposure != 1.0 {
+		t.Fatalf("tonemap effect = %+v", ir.PostFX[2])
+	}
+}
+
 func TestCanonicalIRRejectsInstancedTransformCountMismatch(t *testing.T) {
 	sceneElement := &nir.Element{
 		Tag: "scene3d",

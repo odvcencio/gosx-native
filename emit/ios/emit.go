@@ -124,6 +124,7 @@ func emitScene3D(n *nir.Element, indent int) string {
 	childPad := strings.Repeat("    ", indent+1)
 	grandchildPad := strings.Repeat("    ", indent+2)
 	nodes := scene3DNodes(n)
+	postEffects := scene3DPostEffects(n)
 
 	var sb strings.Builder
 	sb.WriteString(pad)
@@ -139,6 +140,21 @@ func emitScene3D(n *nir.Element, indent int) string {
 	sb.WriteString(childPad)
 	sb.WriteString("background: ")
 	sb.WriteString(scene3DStringAttr(n, "background", "#101820"))
+	if len(postEffects) > 0 {
+		sb.WriteString(",\n")
+		sb.WriteString(childPad)
+		sb.WriteString("postEffects: [\n")
+		for i, effect := range postEffects {
+			if i > 0 {
+				sb.WriteString(",\n")
+			}
+			sb.WriteString(grandchildPad)
+			sb.WriteString(emitScene3DPostEffect(effect))
+		}
+		sb.WriteByte('\n')
+		sb.WriteString(childPad)
+		sb.WriteString("]")
+	}
 	sb.WriteString(",\n")
 	sb.WriteString(childPad)
 	sb.WriteString("nodes: [\n")
@@ -164,6 +180,11 @@ type scene3DNode struct {
 	Attrs []nir.Attr
 }
 
+type scene3DPostEffect struct {
+	Tag   string
+	Attrs []nir.Attr
+}
+
 func emitScene3DNode(n scene3DNode, index int) string {
 	id := scene3DStringAttrFromAttrs(n.Attrs, "id", fmt.Sprintf("%s-%d", n.Tag, index))
 	return fmt.Sprintf(
@@ -180,6 +201,24 @@ func emitScene3DNode(n scene3DNode, index int) string {
 		scene3DDoubleAttrFromAttrs(n.Attrs, "depth", "1"),
 		scene3DIntAttrFromAttrs(n.Attrs, "count", "0"),
 		scene3DDoubleAttrFromAttrs(n.Attrs, "size", "0"),
+	)
+}
+
+func emitScene3DPostEffect(effect scene3DPostEffect) string {
+	return fmt.Sprintf(
+		"GSXScene3DPostEffect(kind: %s, threshold: %s, intensity: %s, radius: %s, scale: %s, saturation: %s, contrast: %s, exposure: %s, mode: %s, focusDistance: %s, aperture: %s, maxBlur: %s)",
+		strconv.Quote(scene3DPostEffectKind(effect.Tag)),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "threshold", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "intensity", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "radius", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "scale", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "saturation", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "contrast", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "exposure", "0"),
+		scene3DStringAttrFromAttrs(effect.Attrs, "mode", ""),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "focusDistance", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "aperture", "0"),
+		scene3DDoubleAttrFromAttrs(effect.Attrs, "maxBlur", "0"),
 	)
 }
 
@@ -206,12 +245,50 @@ func scene3DNodes(n *nir.Element) []scene3DNode {
 	return nodes
 }
 
+func scene3DPostEffects(n *nir.Element) []scene3DPostEffect {
+	if n.Scene3D != nil {
+		effects := make([]scene3DPostEffect, 0, len(n.Scene3D.Items))
+		for _, item := range n.Scene3D.Items {
+			if scene3DPostEffectKind(item.Tag) != "" {
+				effects = append(effects, scene3DPostEffect{Tag: item.Tag, Attrs: item.Attrs})
+			}
+		}
+		return effects
+	}
+	effects := make([]scene3DPostEffect, 0, len(n.Children))
+	for _, child := range n.Children {
+		element, ok := child.(*nir.Element)
+		if !ok {
+			continue
+		}
+		if scene3DPostEffectKind(element.Tag) != "" {
+			effects = append(effects, scene3DPostEffect{Tag: element.Tag, Attrs: element.Attrs})
+		}
+	}
+	return effects
+}
+
 func scene3DRenderableNode(tag string) bool {
 	switch tag {
 	case "mesh", "model", "points", "instancedMesh":
 		return true
 	default:
 		return false
+	}
+}
+
+func scene3DPostEffectKind(tag string) string {
+	switch strings.ToLower(strings.TrimSpace(tag)) {
+	case "postfx.bloom":
+		return "bloom"
+	case "postfx.vignette":
+		return "vignette"
+	case "postfx.colorgrading":
+		return "colorGrade"
+	case "postfx.tonemap":
+		return "toneMapping"
+	default:
+		return ""
 	}
 }
 

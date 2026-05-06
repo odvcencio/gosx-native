@@ -20,7 +20,23 @@ data class GSXScene3DScene(
     val width: Double = 640.0,
     val height: Double = 360.0,
     val background: String = "#101820",
+    val postEffects: List<GSXScene3DPostEffect> = emptyList(),
     val nodes: List<GSXScene3DNode> = emptyList(),
+)
+
+data class GSXScene3DPostEffect(
+    val kind: String,
+    val threshold: Double = 0.0,
+    val intensity: Double = 0.0,
+    val radius: Double = 0.0,
+    val scale: Double = 0.0,
+    val saturation: Double = 0.0,
+    val contrast: Double = 0.0,
+    val exposure: Double = 0.0,
+    val mode: String = "",
+    val focusDistance: Double = 0.0,
+    val aperture: Double = 0.0,
+    val maxBlur: Double = 0.0,
 )
 
 data class GSXScene3DNode(

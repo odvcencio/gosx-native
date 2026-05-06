@@ -416,6 +416,25 @@ func TestLowerScene3DCoversInstancedMeshTag(t *testing.T) {
 	requireScene3DItemAttrLiteral(t, instanced, "transforms", "string", "1,0,0,0,0,1,0,0,0,0,1,0,-1.2,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0.2,0,1,1,0,0,0,0,1,0,0,0,0,1,0,1.2,-0.1,0,1")
 }
 
+func TestLowerScene3DCoversPostFXTags(t *testing.T) {
+	mod := lowerFixture(t, "scene3d_postfx.gsx")
+	component := findComponent(t, mod, "PostFXDemo")
+	scene := requireElement(t, component.Body, "scene3d")
+	if scene.Scene3D == nil {
+		t.Fatalf("missing scene3d payload")
+	}
+	if got := len(scene.Scene3D.Items); got != 6 {
+		t.Fatalf("scene3d items = %d, want 6", got)
+	}
+	bloom := requireScene3DItem(t, scene.Scene3D.Items[2], "postFX.Bloom")
+	requireScene3DItemAttrLiteral(t, bloom, "threshold", "float", "0.72")
+	requireScene3DItemAttrLiteral(t, bloom, "intensity", "float", "1.4")
+	requireScene3DItem(t, scene.Scene3D.Items[3], "postFX.Vignette")
+	requireScene3DItem(t, scene.Scene3D.Items[4], "postFX.ColorGrading")
+	tonemap := requireScene3DItem(t, scene.Scene3D.Items[5], "postFX.Tonemap")
+	requireScene3DItemAttrLiteral(t, tonemap, "mode", "string", "aces")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))

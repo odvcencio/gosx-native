@@ -19,6 +19,7 @@ func TestValidateScene3DStaticSurfaceAccepted(t *testing.T) {
 						{Tag: "mesh"},
 						{Tag: "instancedMesh"},
 						{Tag: "points"},
+						{Tag: "postFX.Bloom"},
 					},
 				},
 			},

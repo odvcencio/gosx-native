@@ -45,6 +45,7 @@ func defaultSceneConformSources(root string) []string {
 	return []string{
 		filepath.Join(root, "testdata/corpus/go/scene3d.gsx"),
 		filepath.Join(root, "testdata/corpus/go/scene3d_instancing.gsx"),
+		filepath.Join(root, "testdata/corpus/go/scene3d_postfx.gsx"),
 	}
 }
 

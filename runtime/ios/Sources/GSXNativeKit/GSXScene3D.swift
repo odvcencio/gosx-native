@@ -5,13 +5,58 @@ public struct GSXScene3DScene {
     public var width: Double
     public var height: Double
     public var background: String
+    public var postEffects: [GSXScene3DPostEffect]
     public var nodes: [GSXScene3DNode]
 
-    public init(width: Double = 640, height: Double = 360, background: String = "#101820", nodes: [GSXScene3DNode] = []) {
+    public init(width: Double = 640, height: Double = 360, background: String = "#101820", postEffects: [GSXScene3DPostEffect] = [], nodes: [GSXScene3DNode] = []) {
         self.width = width
         self.height = height
         self.background = background
+        self.postEffects = postEffects
         self.nodes = nodes
+    }
+}
+
+public struct GSXScene3DPostEffect {
+    public var kind: String
+    public var threshold: Double
+    public var intensity: Double
+    public var radius: Double
+    public var scale: Double
+    public var saturation: Double
+    public var contrast: Double
+    public var exposure: Double
+    public var mode: String
+    public var focusDistance: Double
+    public var aperture: Double
+    public var maxBlur: Double
+
+    public init(
+        kind: String,
+        threshold: Double = 0,
+        intensity: Double = 0,
+        radius: Double = 0,
+        scale: Double = 0,
+        saturation: Double = 0,
+        contrast: Double = 0,
+        exposure: Double = 0,
+        mode: String = "",
+        focusDistance: Double = 0,
+        aperture: Double = 0,
+        maxBlur: Double = 0
+    ) {
+        self.kind = kind
+        self.threshold = threshold
+        self.intensity = intensity
+        self.radius = radius
+        self.scale = scale
+        self.saturation = saturation
+        self.contrast = contrast
+        self.exposure = exposure
+        self.mode = mode
+        self.focusDistance = focusDistance
+        self.aperture = aperture
+        self.maxBlur = maxBlur
     }
 }
 

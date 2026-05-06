@@ -105,6 +105,12 @@ func lowerItem(props *scene.Scene3DProps, item nir.Scene3DItem) error {
 			return err
 		}
 		props.Nodes = append(props.Nodes, node)
+	case "postfx.bloom", "postfx.vignette", "postfx.colorgrading", "postfx.tonemap":
+		effect, err := lowerPostEffect(item.Tag, item.Attrs)
+		if err != nil {
+			return err
+		}
+		props.PostFX = append(props.PostFX, effect)
 	default:
 		return fmt.Errorf("Scene3D conformance does not support <%s> yet", item.Tag)
 	}
@@ -462,6 +468,45 @@ func lowerPoints(attrs []nir.Attr) (scene.IRNode, error) {
 	return scene.LowerPoints(props), nil
 }
 
+func lowerPostEffect(tag string, attrs []nir.Attr) (scene.IRPostEffect, error) {
+	effect := scene.IRPostEffect{Kind: postEffectKind(tag)}
+	var err error
+	if effect.Threshold, err = floatAttrDefault(attrs, "threshold", effect.Threshold); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Intensity, err = floatAttrDefault(attrs, "intensity", effect.Intensity); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Radius, err = floatAttrDefault(attrs, "radius", effect.Radius); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Scale, err = floatAttrDefault(attrs, "scale", effect.Scale); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Saturation, err = floatAttrDefault(attrs, "saturation", effect.Saturation); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Contrast, err = floatAttrDefault(attrs, "contrast", effect.Contrast); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Exposure, err = floatAttrDefault(attrs, "exposure", effect.Exposure); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Mode, err = stringAttrDefault(attrs, "mode", effect.Mode); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.FocusDistance, err = floatAttrDefault(attrs, "focusDistance", effect.FocusDistance); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.Aperture, err = floatAttrDefault(attrs, "aperture", effect.Aperture); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	if effect.MaxBlur, err = floatAttrDefault(attrs, "maxBlur", effect.MaxBlur); err != nil {
+		return scene.IRPostEffect{}, err
+	}
+	return effect, nil
+}
+
 func lowerMaterial(attrs []nir.Attr) (scene.IRMaterial, error) {
 	material := scene.IRMaterial{Kind: "standard"}
 	var err error
@@ -548,6 +593,21 @@ func lightKind(tag string) string {
 		return "spot"
 	case "hemispherelight":
 		return "hemisphere"
+	default:
+		return normalizeTag(tag)
+	}
+}
+
+func postEffectKind(tag string) string {
+	switch normalizeTag(tag) {
+	case "postfx.bloom":
+		return "bloom"
+	case "postfx.vignette":
+		return "vignette"
+	case "postfx.colorgrading":
+		return "colorGrade"
+	case "postfx.tonemap":
+		return "toneMapping"
 	default:
 		return normalizeTag(tag)
 	}
