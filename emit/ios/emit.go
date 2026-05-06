@@ -141,6 +141,12 @@ func emitScene3D(n *nir.Element, indent int) string {
 	sb.WriteString(childPad)
 	sb.WriteString("background: ")
 	sb.WriteString(scene3DStringAttr(n, "background", "#101820"))
+	if backend, ok := scene3DBackendAttr(n, target.IOS); ok {
+		sb.WriteString(",\n")
+		sb.WriteString(childPad)
+		sb.WriteString("backend: ")
+		sb.WriteString(backend)
+	}
 	if len(postEffects) > 0 {
 		sb.WriteString(",\n")
 		sb.WriteString(childPad)
@@ -356,6 +362,32 @@ func scene3DPostEffectKind(tag string) string {
 		return "toneMapping"
 	default:
 		return ""
+	}
+}
+
+func scene3DBackendAttr(n *nir.Element, tgt target.Target) (string, bool) {
+	backend := strings.ToLower(strings.TrimSpace(literalAttr(n, "backend")))
+	switch tgt {
+	case target.IOS:
+		switch backend {
+		case "canvas":
+			return ".canvas", true
+		case "native", "scenekit":
+			return ".native", true
+		default:
+			return "", false
+		}
+	case target.Android:
+		switch backend {
+		case "canvas":
+			return "GSXScene3DBackend.Canvas", true
+		case "native", "opengl", "gles":
+			return "GSXScene3DBackend.Native", true
+		default:
+			return "", false
+		}
+	default:
+		return "", false
 	}
 }
 

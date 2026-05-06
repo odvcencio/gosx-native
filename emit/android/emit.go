@@ -40,6 +40,9 @@ func Emit(mod *nir.Module, w io.Writer) error {
 	fmt.Fprintln(w, "import com.gosx.nativekit.GSXComponent")
 	if moduleHasTag(mod, "scene3d") {
 		fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3D")
+		if moduleHasScene3DBackendAttrs(mod) {
+			fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3DBackend")
+		}
 		if moduleHasScene3DHTMLOverlays(mod) {
 			fmt.Fprintln(w, "import com.gosx.nativekit.GSXScene3DHTMLOverlay")
 		}
@@ -99,6 +102,58 @@ func moduleHasScene3DSpreadAttrs(mod *nir.Module) bool {
 	for _, c := range mod.Components {
 		if viewHasScene3DSpreadAttrs(c.Body) {
 			return true
+		}
+	}
+	return false
+}
+
+func moduleHasScene3DBackendAttrs(mod *nir.Module) bool {
+	for _, c := range mod.Components {
+		if viewHasScene3DBackendAttrs(c.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func viewHasScene3DBackendAttrs(v nir.View) bool {
+	switch n := v.(type) {
+	case *nir.Element:
+		if n.Tag == "scene3d" && attrExpr(n, "backend") != nil {
+			return true
+		}
+		for _, child := range n.Children {
+			if viewHasScene3DBackendAttrs(child) {
+				return true
+			}
+		}
+	case *nir.Conditional:
+		for _, child := range n.Then {
+			if viewHasScene3DBackendAttrs(child) {
+				return true
+			}
+		}
+		for _, child := range n.Else {
+			if viewHasScene3DBackendAttrs(child) {
+				return true
+			}
+		}
+	case *nir.ComponentRef:
+		for _, child := range n.Children {
+			if viewHasScene3DBackendAttrs(child) {
+				return true
+			}
+		}
+	case *nir.Loop:
+		for _, child := range n.Body {
+			if viewHasScene3DBackendAttrs(child) {
+				return true
+			}
+		}
+		for _, child := range n.Empty {
+			if viewHasScene3DBackendAttrs(child) {
+				return true
+			}
 		}
 	}
 	return false
@@ -466,6 +521,12 @@ func emitScene3D(n *nir.Element, indent int) string {
 	sb.WriteString(childPad)
 	sb.WriteString("background = ")
 	sb.WriteString(scene3DStringAttr(n, "background", "#101820"))
+	if backend, ok := scene3DBackendAttr(n, target.Android); ok {
+		sb.WriteString(",\n")
+		sb.WriteString(childPad)
+		sb.WriteString("backend = ")
+		sb.WriteString(backend)
+	}
 	if len(postEffects) > 0 {
 		sb.WriteString(",\n")
 		sb.WriteString(childPad)
@@ -670,6 +731,32 @@ func scene3DPostEffectKind(tag string) string {
 		return "toneMapping"
 	default:
 		return ""
+	}
+}
+
+func scene3DBackendAttr(n *nir.Element, tgt target.Target) (string, bool) {
+	backend := strings.ToLower(strings.TrimSpace(literalAttr(n, "backend")))
+	switch tgt {
+	case target.IOS:
+		switch backend {
+		case "canvas":
+			return ".canvas", true
+		case "native", "scenekit":
+			return ".native", true
+		default:
+			return "", false
+		}
+	case target.Android:
+		switch backend {
+		case "canvas":
+			return "GSXScene3DBackend.Canvas", true
+		case "native", "opengl", "gles":
+			return "GSXScene3DBackend.Native", true
+		default:
+			return "", false
+		}
+	default:
+		return "", false
 	}
 }
 

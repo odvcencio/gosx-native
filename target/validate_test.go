@@ -71,6 +71,71 @@ func TestValidateScene3DChildOutsideSceneReportsDiagnostic(t *testing.T) {
 	}
 }
 
+func TestValidateScene3DBackendAcceptedPerTarget(t *testing.T) {
+	mod := &nir.Module{
+		Components: []*nir.Component{{
+			Name: "SceneDemo",
+			Body: &nir.Element{
+				Tag: "scene3d",
+				Attrs: []nir.Attr{{
+					Name:  "backend",
+					Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: "canvas"}},
+				}},
+			},
+		}},
+	}
+	if err := Validate(mod, IOS); err != nil {
+		t.Fatalf("validate ios: %v", err)
+	}
+	if err := Validate(mod, Android); err != nil {
+		t.Fatalf("validate android: %v", err)
+	}
+}
+
+func TestValidateScene3DBackendRejectsUnsupportedTargetValue(t *testing.T) {
+	mod := &nir.Module{
+		Components: []*nir.Component{{
+			Name: "SceneDemo",
+			Body: &nir.Element{
+				Tag: "scene3d",
+				Attrs: []nir.Attr{{
+					Name:  "backend",
+					Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: "metal"}},
+				}},
+			},
+		}},
+	}
+	err := Validate(mod, Android)
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	if !strings.Contains(err.Error(), `unsupported Scene3D backend "metal" for android`) {
+		t.Fatalf("expected backend diagnostic, got %v", err)
+	}
+}
+
+func TestValidateScene3DBackendRequiresLiteralString(t *testing.T) {
+	mod := &nir.Module{
+		Components: []*nir.Component{{
+			Name: "SceneDemo",
+			Body: &nir.Element{
+				Tag: "scene3d",
+				Attrs: []nir.Attr{{
+					Name:  "backend",
+					Value: nir.RxExpr{Kind: "ref", Ref: "props.backend"},
+				}},
+			},
+		}},
+	}
+	err := Validate(mod, IOS)
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "Scene3D backend must be a literal string") {
+		t.Fatalf("expected backend diagnostic, got %v", err)
+	}
+}
+
 func TestValidateUnknownComponentReportsDiagnostic(t *testing.T) {
 	mod := &nir.Module{
 		Components: []*nir.Component{{

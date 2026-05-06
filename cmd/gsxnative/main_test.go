@@ -134,6 +134,33 @@ func TestEmitScene3DSpreadPrintsRuntimeSurface(t *testing.T) {
 	}
 }
 
+func TestEmitScene3DCanvasBackendPrintsRuntimeBackend(t *testing.T) {
+	iosCmd := exec.Command("go", "run", ".", "emit", "ios", "../../testdata/corpus/go/scene3d_canvas.gsx")
+	var iosOut bytes.Buffer
+	var iosStderr bytes.Buffer
+	iosCmd.Stdout = &iosOut
+	iosCmd.Stderr = &iosStderr
+	if err := iosCmd.Run(); err != nil {
+		t.Fatalf("run ios: %v\nstderr:\n%s", err, iosStderr.String())
+	}
+	if !strings.Contains(iosOut.String(), "backend: .canvas") {
+		t.Fatalf("expected Scene3D Swift canvas backend, got:\n%s", iosOut.String())
+	}
+
+	androidCmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/go/scene3d_canvas.gsx")
+	var androidOut bytes.Buffer
+	var androidStderr bytes.Buffer
+	androidCmd.Stdout = &androidOut
+	androidCmd.Stderr = &androidStderr
+	if err := androidCmd.Run(); err != nil {
+		t.Fatalf("run android: %v\nstderr:\n%s", err, androidStderr.String())
+	}
+	if !strings.Contains(androidOut.String(), "import com.gosx.nativekit.GSXScene3DBackend") ||
+		!strings.Contains(androidOut.String(), "backend = GSXScene3DBackend.Canvas") {
+		t.Fatalf("expected Scene3D Kotlin canvas backend, got:\n%s", androidOut.String())
+	}
+}
+
 func TestSceneConformStaticScene3DPasses(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "scene-conform", "../../testdata/corpus/go/scene3d.gsx")
 	var out bytes.Buffer

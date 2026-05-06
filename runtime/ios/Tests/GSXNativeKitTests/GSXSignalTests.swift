@@ -17,7 +17,14 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(scene.width, 640)
         XCTAssertEqual(scene.height, 360)
         XCTAssertEqual(scene.background, "#101820")
+        XCTAssertEqual(scene.backend, .native)
         XCTAssertEqual(scene.nodes.first?.id, "hero")
         XCTAssertEqual(scene.nodes.first?.kind, "box")
+    }
+
+    func testScene3DSceneStoresCanvasBackend() {
+        let scene = GSXScene3DScene(backend: .canvas)
+
+        XCTAssertEqual(scene.backend, .canvas)
     }
 }

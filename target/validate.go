@@ -140,6 +140,7 @@ func (v *validator) element(n *nir.Element) {
 		wasInScene3D := v.inScene3D
 		if normalizeScene3DTag(n.Tag) == "scene3d" {
 			v.inScene3D = true
+			v.scene3DBackend(n.Attrs, n.Span)
 		}
 		defer func() {
 			v.inScene3D = wasInScene3D
@@ -208,6 +209,35 @@ func (v *validator) handlers(tag string, handlers []nir.Handler, span nir.Span) 
 			event = "<empty>"
 		}
 		v.add(span, fmt.Sprintf("unsupported <%s> handler %q", tag, event))
+	}
+}
+
+func (v *validator) scene3DBackend(attrs []nir.Attr, span nir.Span) {
+	expr := attrExpr(attrs, "backend")
+	if expr == nil {
+		return
+	}
+	if expr.Kind != "literal" || expr.Literal == nil || expr.Literal.Type != "string" {
+		v.add(span, `Scene3D backend must be a literal string`)
+		return
+	}
+	backend := strings.ToLower(strings.TrimSpace(expr.Literal.Value))
+	if backend == "" {
+		return
+	}
+	switch v.target {
+	case IOS:
+		switch backend {
+		case "native", "scenekit", "canvas":
+			return
+		}
+		v.add(span, fmt.Sprintf("unsupported Scene3D backend %q for ios (supported: native, scenekit, canvas)", expr.Literal.Value))
+	case Android:
+		switch backend {
+		case "native", "opengl", "gles", "canvas":
+			return
+		}
+		v.add(span, fmt.Sprintf("unsupported Scene3D backend %q for android (supported: native, opengl, gles, canvas)", expr.Literal.Value))
 	}
 }
 
@@ -303,4 +333,13 @@ func Scene3DNativeTagSupported(tag string) bool {
 
 func normalizeScene3DTag(tag string) string {
 	return strings.ToLower(strings.TrimSpace(tag))
+}
+
+func attrExpr(attrs []nir.Attr, name string) *nir.RxExpr {
+	for i := len(attrs) - 1; i >= 0; i-- {
+		if attrs[i].Name == name {
+			return &attrs[i].Value
+		}
+	}
+	return nil
 }

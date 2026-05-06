@@ -30,10 +30,16 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+enum class GSXScene3DBackend {
+    Native,
+    Canvas,
+}
+
 data class GSXScene3DScene(
     val width: Double = 640.0,
     val height: Double = 360.0,
     val background: String = "#101820",
+    val backend: GSXScene3DBackend = GSXScene3DBackend.Native,
     val postEffects: List<GSXScene3DPostEffect> = emptyList(),
     val htmlOverlays: List<GSXScene3DHTMLOverlay> = emptyList(),
     val nodes: List<GSXScene3DNode> = emptyList(),
@@ -124,14 +130,11 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
             .aspectRatio(aspect)
             .semantics { contentDescription = "Scene3D" }
             .testTag("Scene3D"),
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(color = colorFromHex(scene.background), size = size)
-            val renderableNodes = scene.nodes.filter { it.tag == "mesh" || it.tag == "model" || it.tag == "points" || it.tag == "instancedMesh" || it.tag == "computeParticles" }
-            renderableNodes.forEachIndexed { index, node ->
-                drawSceneNode(node, index, renderableNodes.size)
-            }
-            drawPostEffects(scene.postEffects)
+) {
+        if (scene.backend == GSXScene3DBackend.Native) {
+            GSXScene3DNativeSurface(scene = scene, modifier = Modifier.fillMaxSize())
+        } else {
+            GSXScene3DCanvasSurface(scene = scene, modifier = Modifier.fillMaxSize())
         }
         scene.htmlOverlays.forEach { overlay ->
             BasicText(
@@ -149,6 +152,18 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
                 style = TextStyle(color = Color.White.copy(alpha = overlay.opacity.coerceIn(0.0, 1.0).toFloat()), fontSize = 12.sp),
             )
         }
+    }
+}
+
+@Composable
+private fun GSXScene3DCanvasSurface(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        drawRect(color = colorFromHex(scene.background), size = size)
+        val renderableNodes = scene.nodes.filter { it.tag == "mesh" || it.tag == "model" || it.tag == "points" || it.tag == "instancedMesh" || it.tag == "computeParticles" }
+        renderableNodes.forEachIndexed { index, node ->
+            drawSceneNode(node, index, renderableNodes.size)
+        }
+        drawPostEffects(scene.postEffects)
     }
 }
 

@@ -26,9 +26,10 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - Scene3D `map[string]any` spread props now lower into typed runtime attribute reads for native source generation.
 - Native Canvas runtimes now draw placeholder post-fx visualization for bloom, vignette, color grading, and tone mapping declarations.
 - Scene3D static, instancing, compute, HTML, and post-fx fixtures now have checked-in render-signature goldens covering the normalized expected draw contract.
-- Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
-- Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
-- Replace Canvas-level post-fx placeholders with renderer-grade post-fx passes after the durable backend is selected.
-- Replace compute-particle placeholders with real GPU compute after the durable backend is selected.
-- Replace native text extraction for `<Html>` with renderer-backed DOM/WebView overlay semantics after the durable backend is selected.
-- Promote render-signature conformance to native pixel/render-output conformance after the durable renderer/backend layer is selected.
+- Runtime Scene3D now has explicit backend selection: native is the default, and `backend="canvas"` keeps the previous SwiftUI/Compose Canvas renderer as a fallback.
+- The initial native runtime path is SceneKit on iOS and an OpenGL ES `GLSurfaceView` bridge on Android, so checked-in demos exercise GPU-backed native surfaces instead of only declarative Canvas placeholders.
+- Harden the native GPU bridge into full renderer-grade `scene.IR` parity, including a final Metal/Vulkan/Filament decision if SceneKit/OpenGL ES is not sufficient.
+- Replace Canvas-level post-fx placeholders with renderer-grade post-fx passes in the native backends.
+- Replace compute-particle placeholders with real GPU compute in the native backends.
+- Replace native text extraction for `<Html>` with renderer-backed DOM/WebView overlay semantics.
+- Promote render-signature conformance to native pixel/render-output conformance.

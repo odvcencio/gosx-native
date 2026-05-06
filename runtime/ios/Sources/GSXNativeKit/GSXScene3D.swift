@@ -1,18 +1,25 @@
 import Foundation
 import SwiftUI
 
+public enum GSXScene3DBackend: String {
+    case native
+    case canvas
+}
+
 public struct GSXScene3DScene {
     public var width: Double
     public var height: Double
     public var background: String
+    public var backend: GSXScene3DBackend
     public var postEffects: [GSXScene3DPostEffect]
     public var htmlOverlays: [GSXScene3DHTMLOverlay]
     public var nodes: [GSXScene3DNode]
 
-    public init(width: Double = 640, height: Double = 360, background: String = "#101820", postEffects: [GSXScene3DPostEffect] = [], htmlOverlays: [GSXScene3DHTMLOverlay] = [], nodes: [GSXScene3DNode] = []) {
+    public init(width: Double = 640, height: Double = 360, background: String = "#101820", backend: GSXScene3DBackend = .native, postEffects: [GSXScene3DPostEffect] = [], htmlOverlays: [GSXScene3DHTMLOverlay] = [], nodes: [GSXScene3DNode] = []) {
         self.width = width
         self.height = height
         self.background = background
+        self.backend = backend
         self.postEffects = postEffects
         self.htmlOverlays = htmlOverlays
         self.nodes = nodes
@@ -242,15 +249,10 @@ public struct GSXScene3DView: View {
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Canvas { context, size in
-                    let bounds = CGRect(origin: .zero, size: size)
-                    context.fill(Path(bounds), with: .color(Color(hex: scene.background)))
-
-                    let renderableNodes = scene.nodes.filter { $0.tag == "mesh" || $0.tag == "model" || $0.tag == "points" || $0.tag == "instancedMesh" || $0.tag == "computeParticles" }
-                    for index in renderableNodes.indices {
-                        draw(renderableNodes[index], at: index, total: renderableNodes.count, in: context, size: size)
-                    }
-                    drawPostEffects(scene.postEffects, in: context, size: size)
+                if scene.backend == .native {
+                    GSXScene3DNativeSurface(scene: scene)
+                } else {
+                    GSXScene3DCanvasSurface(scene: scene)
                 }
 
                 ForEach(scene.htmlOverlays) { overlay in
@@ -272,6 +274,23 @@ public struct GSXScene3DView: View {
         .aspectRatio(scene.width / max(scene.height, 1), contentMode: .fit)
         .accessibilityLabel("Scene3D")
         .accessibilityIdentifier("Scene3D")
+    }
+}
+
+private struct GSXScene3DCanvasSurface: View {
+    let scene: GSXScene3DScene
+
+    var body: some View {
+        Canvas { context, size in
+            let bounds = CGRect(origin: .zero, size: size)
+            context.fill(Path(bounds), with: .color(Color(hex: scene.background)))
+
+            let renderableNodes = scene.nodes.filter { $0.tag == "mesh" || $0.tag == "model" || $0.tag == "points" || $0.tag == "instancedMesh" || $0.tag == "computeParticles" }
+            for index in renderableNodes.indices {
+                draw(renderableNodes[index], at: index, total: renderableNodes.count, in: context, size: size)
+            }
+            drawPostEffects(scene.postEffects, in: context, size: size)
+        }
     }
 
     private func draw(_ node: GSXScene3DNode, at index: Int, total: Int, in context: GraphicsContext, size: CGSize) {
