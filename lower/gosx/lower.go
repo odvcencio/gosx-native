@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	gosxlang "github.com/odvcencio/gosx"
+	"github.com/odvcencio/gosx-native/target"
 	gosxir "github.com/odvcencio/gosx/ir"
 	islandprogram "github.com/odvcencio/gosx/island/program"
 	"github.com/odvcencio/gosx/nir"
@@ -173,6 +174,9 @@ func (l *lowerer) lowerView(id gosxir.NodeID) (nir.View, error) {
 	node := l.prog.NodeAt(id)
 	switch node.Kind {
 	case gosxir.NodeComponent:
+		if target.IsScene3DTag(node.Tag) {
+			return l.lowerScene3DView(node)
+		}
 		if isConditionalComponent(node.Tag) {
 			return l.lowerConditionalView(node)
 		}
@@ -272,6 +276,62 @@ func (l *lowerer) lowerComponentRefView(node *gosxir.Node) (nir.View, error) {
 		}
 	}
 	return ref, nil
+}
+
+func (l *lowerer) lowerScene3DView(node *gosxir.Node) (nir.View, error) {
+	element := &nir.Element{
+		Tag:  scene3DNativeTag(node.Tag),
+		Span: irSpan(node.Span),
+	}
+	for _, attr := range node.Attrs {
+		loweredAttr, ok, err := l.lowerScene3DAttr(node, attr)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			element.Attrs = append(element.Attrs, loweredAttr)
+		}
+	}
+	for _, childID := range node.Children {
+		child, err := l.lowerView(childID)
+		if err != nil {
+			return nil, err
+		}
+		if child != nil {
+			element.Children = append(element.Children, child)
+		}
+	}
+	return element, nil
+}
+
+func (l *lowerer) lowerScene3DAttr(node *gosxir.Node, attr gosxir.Attr) (nir.Attr, bool, error) {
+	if attr.IsEvent {
+		return nir.Attr{}, false, fmt.Errorf("Scene3D attribute %q cannot be an event handler", attr.Name)
+	}
+	switch attr.Kind {
+	case gosxir.AttrStatic:
+		return nir.Attr{
+			Name:  attr.Name,
+			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: attr.Value}},
+			Span:  irSpan(node.Span),
+		}, true, nil
+	case gosxir.AttrBool:
+		return nir.Attr{
+			Name:  attr.Name,
+			Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "bool", Value: "true"}},
+			Span:  irSpan(node.Span),
+		}, true, nil
+	case gosxir.AttrExpr:
+		expr, err := l.lowerRxExpr(attr.Expr)
+		if err != nil {
+			return nir.Attr{}, false, err
+		}
+		return nir.Attr{Name: attr.Name, Value: *expr, Span: irSpan(node.Span)}, true, nil
+	case gosxir.AttrSpread:
+		return nir.Attr{}, false, fmt.Errorf("Scene3D spread props are not supported by native lowering yet")
+	default:
+		return nir.Attr{}, false, nil
+	}
 }
 
 func (l *lowerer) lowerComponentProp(attr gosxir.Attr) (nir.Attr, bool, error) {
@@ -895,6 +955,13 @@ func nativeTagForElement(tag string, attrs []gosxir.Attr) string {
 		return "checkbox"
 	}
 	return nativeTag(tag)
+}
+
+func scene3DNativeTag(tag string) string {
+	if tag == "Scene3D" {
+		return "scene3d"
+	}
+	return lowerFirst(tag)
 }
 
 func isConditionalComponent(tag string) bool {

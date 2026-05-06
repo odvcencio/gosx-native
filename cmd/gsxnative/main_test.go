@@ -32,6 +32,40 @@ func TestCompileGoSXCounterPrintsNIR(t *testing.T) {
 	}
 }
 
+func TestCompileGoSXScene3DPrintsNIR(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "compile", "../../testdata/corpus/go/scene3d.gsx")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(out.String(), `"tag": "scene3d"`) || !strings.Contains(out.String(), `"tag": "mesh"`) {
+		t.Fatalf("expected Scene3D NIR tags, got:\n%s", out.String())
+	}
+}
+
+func TestCheckIOSGoSXCounterPasses(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "check", "ios", "../../testdata/corpus/go/counter.gsx")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstderr:\n%s", err, stderr.String())
+	}
+}
+
+func TestCheckIOSScene3DReportsMissingBackend(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "check", "ios", "../../testdata/corpus/go/scene3d.gsx")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("expected check failure")
+	}
+	if !strings.Contains(stderr.String(), "Scene3D native backend is not implemented") {
+		t.Fatalf("expected Scene3D diagnostic, got:\n%s", stderr.String())
+	}
+}
+
 func TestEmitIOSCounterPrintsSwift(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "emit", "ios", "../../testdata/corpus/swift/counter.swift.gsx")
 	var out bytes.Buffer
@@ -41,6 +75,19 @@ func TestEmitIOSCounterPrintsSwift(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "struct Counter: GSXComponent") {
 		t.Fatalf("expected Counter struct in emitted Swift, got:\n%s", out.String())
+	}
+}
+
+func TestEmitAndroidScene3DReportsMissingBackend(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "emit", "android", "../../testdata/corpus/go/scene3d.gsx")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("expected emit failure")
+	}
+	if !strings.Contains(stderr.String(), "Scene3D native backend is not implemented") {
+		t.Fatalf("expected Scene3D diagnostic, got:\n%s", stderr.String())
 	}
 }
 

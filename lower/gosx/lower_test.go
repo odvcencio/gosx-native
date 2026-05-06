@@ -367,6 +367,34 @@ func TestLowerLoopCoversEachViewNode(t *testing.T) {
 	requireExprHoleRef(t, text.Children[0], "item")
 }
 
+func TestLowerScene3DCoversComposableSceneTags(t *testing.T) {
+	mod := lowerFixture(t, "scene3d.gsx")
+	if got := len(mod.Components); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+	component := mod.Components[0]
+	if component.Name != "SceneDemo" {
+		t.Fatalf("component name = %q, want SceneDemo", component.Name)
+	}
+	scene := requireElement(t, component.Body, "scene3d")
+	requireAttrLiteral(t, scene, "class", "string", "native-scene")
+	requireAttrRef(t, scene, "width", "props.width")
+	requireAttrRef(t, scene, "height", "props.height")
+	if got := len(scene.Children); got != 6 {
+		t.Fatalf("scene children = %d, want 6", got)
+	}
+	camera := requireElement(t, scene.Children[0], "camera")
+	requireAttrLiteral(t, camera, "z", "int", "7")
+	requireAttrLiteral(t, camera, "near", "float", "0.1")
+	requireElement(t, scene.Children[1], "environment")
+	requireElement(t, scene.Children[2], "directionalLight")
+	mesh := requireElement(t, scene.Children[3], "mesh")
+	requireAttrLiteral(t, mesh, "kind", "string", "box")
+	model := requireElement(t, scene.Children[4], "model")
+	requireAttrLiteral(t, model, "static", "bool", "true")
+	requireElement(t, scene.Children[5], "points")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))

@@ -7,7 +7,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: gsxnative <compile|emit> ...")
+		fmt.Fprintln(os.Stderr, "usage: gsxnative <compile|emit|check|build> ...")
 		os.Exit(2)
 	}
 	var err error
@@ -16,6 +16,10 @@ func main() {
 		err = runCompile(os.Args[2:])
 	case "emit":
 		err = runEmit(os.Args[2:])
+	case "check":
+		err = runCheck(os.Args[2:])
+	case "build":
+		err = runBuild(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		os.Exit(2)

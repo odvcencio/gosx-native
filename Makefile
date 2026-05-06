@@ -1,4 +1,4 @@
-.PHONY: test smoke android-smoke android-connected android-managed demo lint
+.PHONY: test smoke build-ios build-android build-all android-smoke android-connected android-managed demo lint
 
 test:
 	go test ./...
@@ -6,17 +6,23 @@ test:
 smoke:
 	cd test/e2e && go test -tags smoke -v ./...
 
+build-ios:
+	go run ./cmd/gsxnative build ios
+
+build-android:
+	go run ./cmd/gsxnative build android
+
+build-all:
+	go run ./cmd/gsxnative build all
+
 android-smoke:
-	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
-	cd examples/counter-android && gradle --no-daemon :gsx-nativekit:assembleRelease :app:assembleDebug
+	go run ./cmd/gsxnative build android
 
 android-connected:
-	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
-	cd examples/counter-android && gradle --no-daemon :app:connectedDebugAndroidTest
+	go run ./cmd/gsxnative build android --task :app:connectedDebugAndroidTest
 
 android-managed:
-	go run ./cmd/gsxnative emit android testdata/corpus/swift/counter.swift.gsx > examples/counter-android/app/src/main/kotlin/generated/Counter.kt
-	cd examples/counter-android && gradle --no-daemon :app:ciApi30DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+	go run ./cmd/gsxnative build android --task :app:ciApi30DebugAndroidTest --gradle-property android.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
 demo:
 	@echo "Running native parity demo..."
