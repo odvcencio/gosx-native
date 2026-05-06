@@ -250,6 +250,7 @@ public struct GSXScene3DView: View {
                     for index in renderableNodes.indices {
                         draw(renderableNodes[index], at: index, total: renderableNodes.count, in: context, size: size)
                     }
+                    drawPostEffects(scene.postEffects, in: context, size: size)
                 }
 
                 ForEach(scene.htmlOverlays) { overlay in
@@ -329,6 +330,54 @@ public struct GSXScene3DView: View {
             let corner = CGSize(width: 10, height: 10)
             context.fill(Path(roundedRect: rect, cornerSize: corner), with: .color(color.opacity(0.86)))
             context.stroke(Path(roundedRect: rect, cornerSize: corner), with: .color(.white.opacity(0.38)), lineWidth: 1)
+        }
+    }
+
+    private func drawPostEffects(_ effects: [GSXScene3DPostEffect], in context: GraphicsContext, size: CGSize) {
+        let bounds = CGRect(origin: .zero, size: size)
+        for effect in effects {
+            switch effect.kind {
+            case "bloom":
+                let alpha = min(max(effect.intensity * 0.16, 0), 0.34)
+                if alpha <= 0 {
+                    continue
+                }
+                let lineWidth = max(CGFloat(effect.radius) * 18, 8)
+                let rect = bounds.insetBy(dx: lineWidth * 0.5, dy: lineWidth * 0.5)
+                context.stroke(
+                    Path(roundedRect: rect, cornerSize: CGSize(width: lineWidth, height: lineWidth)),
+                    with: .color(.white.opacity(alpha)),
+                    lineWidth: lineWidth
+                )
+            case "vignette":
+                let alpha = min(max(effect.intensity * 0.46, 0), 0.58)
+                if alpha <= 0 {
+                    continue
+                }
+                let thickness = min(size.width, size.height) * CGFloat(min(max(effect.radius, 0.12), 0.5))
+                let color = Color.black.opacity(alpha)
+                context.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: thickness)), with: .color(color))
+                context.fill(Path(CGRect(x: 0, y: size.height - thickness, width: size.width, height: thickness)), with: .color(color))
+                context.fill(Path(CGRect(x: 0, y: 0, width: thickness, height: size.height)), with: .color(color))
+                context.fill(Path(CGRect(x: size.width - thickness, y: 0, width: thickness, height: size.height)), with: .color(color))
+            case "colorGrade":
+                let warm = effect.saturation >= 1
+                let alpha = min(max(abs(effect.saturation - 1) * 0.08 + abs(effect.contrast - 1) * 0.05 + abs(effect.exposure) * 0.04, 0), 0.18)
+                if alpha <= 0 {
+                    continue
+                }
+                let tint = warm ? Color(red: 1.0, green: 0.82, blue: 0.54) : Color(red: 0.46, green: 0.72, blue: 1.0)
+                context.fill(Path(bounds), with: .color(tint.opacity(alpha)))
+            case "toneMapping":
+                let alpha = min(max(abs(effect.exposure - 1) * 0.08, 0), 0.2)
+                if alpha <= 0 {
+                    continue
+                }
+                let color = effect.exposure >= 1 ? Color.white : Color.black
+                context.fill(Path(bounds), with: .color(color.opacity(alpha)))
+            default:
+                continue
+            }
         }
     }
 }

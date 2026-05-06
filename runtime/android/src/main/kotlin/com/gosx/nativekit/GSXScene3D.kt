@@ -131,6 +131,7 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
             renderableNodes.forEachIndexed { index, node ->
                 drawSceneNode(node, index, renderableNodes.size)
             }
+            drawPostEffects(scene.postEffects)
         }
         scene.htmlOverlays.forEach { overlay ->
             BasicText(
@@ -147,6 +148,57 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 style = TextStyle(color = Color.White.copy(alpha = overlay.opacity.coerceIn(0.0, 1.0).toFloat()), fontSize = 12.sp),
             )
+        }
+    }
+}
+
+private fun DrawScope.drawPostEffects(effects: List<GSXScene3DPostEffect>) {
+    effects.forEach { effect ->
+        when (effect.kind) {
+            "bloom" -> {
+                val alpha = (effect.intensity * 0.16).coerceIn(0.0, 0.34).toFloat()
+                if (alpha > 0f) {
+                    val lineWidth = max(effect.radius.toFloat() * 18f, 8f)
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = alpha),
+                        topLeft = Offset(lineWidth * 0.5f, lineWidth * 0.5f),
+                        size = Size(size.width - lineWidth, size.height - lineWidth),
+                        cornerRadius = CornerRadius(lineWidth, lineWidth),
+                        style = Stroke(width = lineWidth),
+                    )
+                }
+            }
+            "vignette" -> {
+                val alpha = (effect.intensity * 0.46).coerceIn(0.0, 0.58).toFloat()
+                if (alpha > 0f) {
+                    val thickness = minOf(size.width, size.height) * effect.radius.coerceIn(0.12, 0.5).toFloat()
+                    val color = Color.Black.copy(alpha = alpha)
+                    drawRect(color = color, topLeft = Offset.Zero, size = Size(size.width, thickness))
+                    drawRect(color = color, topLeft = Offset(0f, size.height - thickness), size = Size(size.width, thickness))
+                    drawRect(color = color, topLeft = Offset.Zero, size = Size(thickness, size.height))
+                    drawRect(color = color, topLeft = Offset(size.width - thickness, 0f), size = Size(thickness, size.height))
+                }
+            }
+            "colorGrade" -> {
+                val alpha = (kotlin.math.abs(effect.saturation - 1.0) * 0.08 +
+                    kotlin.math.abs(effect.contrast - 1.0) * 0.05 +
+                    kotlin.math.abs(effect.exposure) * 0.04).coerceIn(0.0, 0.18).toFloat()
+                if (alpha > 0f) {
+                    val tint = if (effect.saturation >= 1.0) {
+                        Color(red = 255, green = 209, blue = 138)
+                    } else {
+                        Color(red = 117, green = 184, blue = 255)
+                    }
+                    drawRect(color = tint.copy(alpha = alpha), size = size)
+                }
+            }
+            "toneMapping" -> {
+                val alpha = (kotlin.math.abs(effect.exposure - 1.0) * 0.08).coerceIn(0.0, 0.2).toFloat()
+                if (alpha > 0f) {
+                    val color = if (effect.exposure >= 1.0) Color.White else Color.Black
+                    drawRect(color = color.copy(alpha = alpha), size = size)
+                }
+            }
         }
     }
 }
