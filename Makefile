@@ -1,4 +1,4 @@
-.PHONY: test smoke build-ios build-android build-all android-smoke android-connected android-managed demo lint
+.PHONY: test smoke build-ios build-android build-all build-scene3d-ios build-scene3d-android android-smoke android-connected android-managed demo lint
 
 test:
 	go test ./...
@@ -14,6 +14,12 @@ build-android:
 
 build-all:
 	go run ./cmd/gsxnative build all
+
+build-scene3d-ios:
+	go run ./cmd/gsxnative build ios --source testdata/corpus/go/scene3d.gsx --output examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
+
+build-scene3d-android:
+	go run ./cmd/gsxnative build android --source testdata/corpus/go/scene3d.gsx --output examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt --task :app:compileDebugKotlin
 
 android-smoke:
 	go run ./cmd/gsxnative build android

@@ -71,7 +71,14 @@ jobs:
         run: brew install xcodegen
       - name: CLI iOS build
         working-directory: gosx-native
-        run: go run ./cmd/gsxnative build ios
+        run: |
+          go run ./cmd/gsxnative build ios
+          git diff --exit-code -- examples/counter-ios/CounterDemo/Generated/Counter.swift
+      - name: CLI Scene3D iOS build
+        working-directory: gosx-native
+        run: |
+          go run ./cmd/gsxnative build ios --source testdata/corpus/go/scene3d.gsx --output examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
+          git diff --exit-code -- examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
       - name: E2E
         working-directory: gosx-native
         run: go test -tags smoke -v ./test/e2e/...
@@ -106,12 +113,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.4.1"
-      - name: Refresh generated Counter
+      - name: Refresh generated native sources
         working-directory: gosx-native
         run: |
           go version
           go run ./cmd/gsxnative build android
-          git diff --exit-code -- examples/counter-android/app/src/main/kotlin/generated/Counter.kt
+          go run ./cmd/gsxnative build android --source testdata/corpus/go/scene3d.gsx --output examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt --task :app:compileDebugKotlin
+          git diff --exit-code -- examples/counter-android/app/src/main/kotlin/generated/Counter.kt examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

@@ -15,6 +15,7 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 ## Remaining Backend Work
 
 - Static `<Mesh>`, `<Model>`, and `<Points>` now emit into native runtime Scene3D views.
+- Checked-in iOS and Android demo app shells now include generated Scene3D sources, and CI regenerates, diffs, and compiles those sources.
 - Add native Scene3D NIR payloads instead of generic element placeholders.
 - Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
 - Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
