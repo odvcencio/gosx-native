@@ -144,7 +144,7 @@ func TestBuildAndroidScene3DRegeneratesSourceAndRunsGradle(t *testing.T) {
 	}
 }
 
-func TestBuildUnsupportedScene3DStopsBeforeNativeTools(t *testing.T) {
+func TestBuildInvalidScene3DStopsBeforeNativeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
 	if err != nil {
@@ -153,14 +153,14 @@ func TestBuildUnsupportedScene3DStopsBeforeNativeTools(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "SceneDemo.kt")
 	err = runBuild([]string{
 		"android",
-		"--source", filepath.Join(root, "testdata/corpus/go/scene3d_compute.gsx"),
+		"--source", filepath.Join(root, "testdata/corpus/go/scene3d_spread_unsupported.gsx"),
 		"--output", output,
 		"--project", t.TempDir(),
 	})
 	if err == nil {
 		t.Fatalf("expected Scene3D build failure")
 	}
-	if !strings.Contains(err.Error(), "Scene3D native backend does not support <ComputeParticles> yet") {
+	if !strings.Contains(err.Error(), "Scene3D spread props are not supported by native lowering yet") {
 		t.Fatalf("expected Scene3D diagnostic, got %v", err)
 	}
 	if len(fake.commands) != 0 {

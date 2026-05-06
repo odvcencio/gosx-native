@@ -2,7 +2,7 @@
 
 The mobile counterpart to [gosx](https://github.com/odvcencio/gosx). React Native is to React what gosx-native is to gosx: same component model, same reactive primitives, same scene graph, different rendering targets.
 
-**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates Compose source and assembles a debug APK in CI. GoSX `.gsx` Counter, Panel, Greeter, Derived, Toggle, Profile, Roster, FormControls, Expressions, and static Scene3D fixtures now lower through the shared NIR and emit deterministic SwiftUI/Compose source. Scene3D lowers into a typed NIR payload, maps into the canonical `gosx/scene.IR` conformance contract, renders static meshes/models/points and instanced mesh batches through native runtime views, preserves post-fx declarations in generated native scene source, and CI regenerates, diffs, compiles, hosts, and UI-asserts checked-in Scene3D demo sources for both native app shells. Compute and HTML tags still fail target validation; visual post-fx passes still require a durable renderer backend beyond the Canvas placeholders.**
+**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates Compose source and assembles a debug APK in CI. GoSX `.gsx` Counter, Panel, Greeter, Derived, Toggle, Profile, Roster, FormControls, Expressions, and Scene3D fixtures now lower through the shared NIR and emit deterministic SwiftUI/Compose source. Scene3D lowers into a typed NIR payload, maps into the canonical `gosx/scene.IR` conformance contract, renders static meshes/models/points, instanced mesh batches, compute-particle placeholders, and simple native HTML overlay text through runtime views, preserves post-fx declarations in generated native scene source, and CI regenerates, diffs, compiles, hosts, and UI-asserts checked-in Scene3D demo sources for both native app shells. No currently enumerated Scene3D native target tags fail validation, but visual post-fx passes, real GPU compute, renderer-backed DOM/WebView HTML overlays, spread props, and cross-target render conformance still require the durable renderer/backend layer.**
 
 See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers/specs/2026-05-04-gosx-native-design.md) for the design.
 
@@ -14,7 +14,9 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 - Scene3D static surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d.gsx`
 - Scene3D instancing surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d_instancing.gsx`
 - Scene3D post-fx conformance surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d_postfx.gsx`
-- Scene3D unsupported capability check: `go run ./cmd/gsxnative check ios testdata/corpus/go/scene3d_compute.gsx`
+- Scene3D compute-particle surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d_compute.gsx`
+- Scene3D HTML overlay surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d_html.gsx`
+- Scene3D unsupported spread-props check: `go run ./cmd/gsxnative check ios testdata/corpus/go/scene3d_spread_unsupported.gsx`
 - Scene3D conformance: `go run ./cmd/gsxnative scene-conform`
 - Broader GoSX handler fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/panel.gsx`
 - GoSX text-input fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/greeter.gsx`

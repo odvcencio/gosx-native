@@ -21,8 +21,11 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - `gsxnative scene-conform` now gates static Scene3D fixtures against canonical `gosx/scene.IR` plus iOS and Android source goldens.
 - `<InstancedMesh>` now lowers to canonical `scene.IR` kind `instanced-mesh`, has source goldens for iOS and Android, and is included in the default conformance gate.
 - `<PostFX.*>` now lowers into canonical `scene.IR.PostFX`, has source goldens for iOS and Android, and is included in the default conformance gate as preserved scene metadata.
+- `<ComputeParticles>` now lowers into canonical `scene.IR` kind `compute-particles`, emits visible native placeholder particles, has source goldens for iOS and Android, and is included in the default conformance gate.
+- `<Html>` now lowers static/literal markup into `scene.IR.Metadata["html"]`, emits simple native overlay text metadata, has source goldens for iOS and Android, and is included in the default conformance gate.
 - Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
 - Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
 - Add native visual post-fx passes after the durable backend is selected.
-- Add native support for `<Html>` and `<ComputeParticles>` after the durable backend is selected.
+- Replace compute-particle placeholders with real GPU compute after the durable backend is selected.
+- Replace native text extraction for `<Html>` with renderer-backed DOM/WebView overlay semantics after the durable backend is selected.
 - Add cross-target Scene3D conformance fixtures for native render output.

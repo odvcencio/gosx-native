@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/odvcencio/gosx/nir"
@@ -433,6 +434,54 @@ func TestLowerScene3DCoversPostFXTags(t *testing.T) {
 	requireScene3DItem(t, scene.Scene3D.Items[4], "postFX.ColorGrading")
 	tonemap := requireScene3DItem(t, scene.Scene3D.Items[5], "postFX.Tonemap")
 	requireScene3DItemAttrLiteral(t, tonemap, "mode", "string", "aces")
+}
+
+func TestLowerScene3DCoversComputeParticlesTag(t *testing.T) {
+	mod := lowerFixture(t, "scene3d_compute.gsx")
+	component := findComponent(t, mod, "ParticleDemo")
+	scene := requireElement(t, component.Body, "scene3d")
+	if scene.Scene3D == nil {
+		t.Fatalf("missing scene3d payload")
+	}
+	if got := len(scene.Scene3D.Items); got != 2 {
+		t.Fatalf("scene3d items = %d, want 2", got)
+	}
+	compute := requireScene3DItem(t, scene.Scene3D.Items[1], "computeParticles")
+	requireScene3DItemAttrLiteral(t, compute, "count", "int", "128")
+	requireScene3DItemAttrLiteral(t, compute, "kind", "string", "spiral")
+	requireScene3DItemAttrLiteral(t, compute, "force", "string", "orbit")
+}
+
+func TestLowerScene3DCoversHTMLTagWithStaticChildren(t *testing.T) {
+	mod := lowerFixture(t, "scene3d_html.gsx")
+	component := findComponent(t, mod, "HTMLDemo")
+	scene := requireElement(t, component.Body, "scene3d")
+	if scene.Scene3D == nil {
+		t.Fatalf("missing scene3d payload")
+	}
+	if got := len(scene.Scene3D.Items); got != 3 {
+		t.Fatalf("scene3d items = %d, want 3", got)
+	}
+	overlay := requireScene3DItem(t, scene.Scene3D.Items[2], "html")
+	requireScene3DItemAttrLiteral(t, overlay, "class", "string", "scene-hud")
+	requireScene3DItemAttrLiteral(t, overlay, "html", "string", `<aside class="scene-hud__card"><strong>Hull</strong><span>stable</span></aside>`)
+}
+
+func TestLowerScene3DRejectsHTMLWithoutMarkup(t *testing.T) {
+	_, err := LowerSource([]byte(`package scene3dhtml
+
+func HTMLDemo() Node {
+	return <Scene3D width={640} height={360}>
+		<Html id="hud" />
+	</Scene3D>
+}
+`))
+	if err == nil {
+		t.Fatalf("expected Scene3D Html lowering failure")
+	}
+	if !strings.Contains(err.Error(), "Scene3D <Html> requires literal html, markup, content, or static children") {
+		t.Fatalf("expected Html diagnostic, got %v", err)
+	}
 }
 
 func lowerFixture(t *testing.T, name string) *nir.Module {

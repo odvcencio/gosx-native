@@ -150,6 +150,76 @@ func TestCanonicalIRLowersPostFXEffects(t *testing.T) {
 	}
 }
 
+func TestCanonicalIRLowersComputeParticles(t *testing.T) {
+	sceneElement := &nir.Element{
+		Tag: "scene3d",
+		Scene3D: &nir.Scene3DPayload{Items: []nir.Scene3DItem{{
+			Tag: "computeParticles",
+			Attrs: []nir.Attr{
+				literalAttr("id", "string", "sparks"),
+				literalAttr("count", "int", "128"),
+				literalAttr("kind", "string", "spiral"),
+				literalAttr("radius", "float", "1.5"),
+				literalAttr("color", "string", "#ffd48f"),
+				literalAttr("size", "float", "0.12"),
+				literalAttr("force", "string", "orbit"),
+				literalAttr("forceStrength", "float", "0.4"),
+				literalAttr("forceY", "float", "1"),
+			},
+		}}},
+	}
+
+	ir, err := CanonicalIR(sceneElement)
+	if err != nil {
+		t.Fatalf("CanonicalIR: %v", err)
+	}
+	if len(ir.Nodes) != 1 || ir.Nodes[0].Kind != "compute-particles" || ir.Nodes[0].Compute == nil {
+		t.Fatalf("nodes = %+v", ir.Nodes)
+	}
+	compute := ir.Nodes[0].Compute
+	if compute.Count != 128 || compute.Emitter.Kind != "spiral" || compute.Emitter.Radius != 1.5 {
+		t.Fatalf("compute = %+v", compute)
+	}
+	if compute.Material.Color != "#ffd48f" || compute.Material.Size != 0.12 {
+		t.Fatalf("material = %+v", compute.Material)
+	}
+	if len(compute.Forces) != 1 || compute.Forces[0].Kind != "orbit" || compute.Forces[0].Y != 1 {
+		t.Fatalf("forces = %+v", compute.Forces)
+	}
+}
+
+func TestCanonicalIRPreservesHTMLMetadata(t *testing.T) {
+	sceneElement := &nir.Element{
+		Tag: "scene3d",
+		Scene3D: &nir.Scene3DPayload{Items: []nir.Scene3DItem{{
+			Tag: "html",
+			Attrs: []nir.Attr{
+				literalAttr("id", "string", "hud"),
+				literalAttr("html", "string", "<aside><strong>Hull</strong><span>stable</span></aside>"),
+				literalAttr("class", "string", "scene-hud"),
+				literalAttr("x", "float", "0"),
+				literalAttr("y", "float", "1.1"),
+				literalAttr("pointerEvents", "string", "auto"),
+			},
+		}}},
+	}
+
+	ir, err := CanonicalIR(sceneElement)
+	if err != nil {
+		t.Fatalf("CanonicalIR: %v", err)
+	}
+	overlays, ok := ir.Metadata["html"].([]map[string]any)
+	if !ok || len(overlays) != 1 {
+		t.Fatalf("metadata html = %#v", ir.Metadata["html"])
+	}
+	if overlays[0]["id"] != "hud" || overlays[0]["className"] != "scene-hud" || overlays[0]["pointerEvents"] != "auto" {
+		t.Fatalf("overlay metadata = %#v", overlays[0])
+	}
+	if overlays[0]["html"] != "<aside><strong>Hull</strong><span>stable</span></aside>" {
+		t.Fatalf("overlay html = %#v", overlays[0]["html"])
+	}
+}
+
 func TestCanonicalIRRejectsInstancedTransformCountMismatch(t *testing.T) {
 	sceneElement := &nir.Element{
 		Tag: "scene3d",

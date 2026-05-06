@@ -62,16 +62,12 @@ func TestCheckIOSScene3DPassesStaticSurface(t *testing.T) {
 	}
 }
 
-func TestCheckIOSScene3DComputeReportsUnsupportedTag(t *testing.T) {
+func TestCheckIOSScene3DComputePasses(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "check", "ios", "../../testdata/corpus/go/scene3d_compute.gsx")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err == nil {
-		t.Fatalf("expected check failure")
-	}
-	if !strings.Contains(stderr.String(), "Scene3D native backend does not support <ComputeParticles> yet") {
-		t.Fatalf("expected Scene3D diagnostic, got:\n%s", stderr.String())
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstderr:\n%s", err, stderr.String())
 	}
 }
 
@@ -153,6 +149,34 @@ func TestSceneConformPostFXScene3DPasses(t *testing.T) {
 		t.Fatalf("run: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), stderr.String())
 	}
 	if !strings.Contains(out.String(), "scene-conform: ../../testdata/corpus/go/scene3d_postfx.gsx OK") {
+		t.Fatalf("expected scene conformance success, got:\n%s", out.String())
+	}
+}
+
+func TestSceneConformComputeScene3DPasses(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "scene-conform", "../../testdata/corpus/go/scene3d_compute.gsx")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), "scene-conform: ../../testdata/corpus/go/scene3d_compute.gsx OK") {
+		t.Fatalf("expected scene conformance success, got:\n%s", out.String())
+	}
+}
+
+func TestSceneConformHTMLScene3DPasses(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "scene-conform", "../../testdata/corpus/go/scene3d_html.gsx")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), "scene-conform: ../../testdata/corpus/go/scene3d_html.gsx OK") {
 		t.Fatalf("expected scene conformance success, got:\n%s", out.String())
 	}
 }

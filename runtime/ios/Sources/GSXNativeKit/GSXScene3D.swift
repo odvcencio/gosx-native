@@ -6,14 +6,66 @@ public struct GSXScene3DScene {
     public var height: Double
     public var background: String
     public var postEffects: [GSXScene3DPostEffect]
+    public var htmlOverlays: [GSXScene3DHTMLOverlay]
     public var nodes: [GSXScene3DNode]
 
-    public init(width: Double = 640, height: Double = 360, background: String = "#101820", postEffects: [GSXScene3DPostEffect] = [], nodes: [GSXScene3DNode] = []) {
+    public init(width: Double = 640, height: Double = 360, background: String = "#101820", postEffects: [GSXScene3DPostEffect] = [], htmlOverlays: [GSXScene3DHTMLOverlay] = [], nodes: [GSXScene3DNode] = []) {
         self.width = width
         self.height = height
         self.background = background
         self.postEffects = postEffects
+        self.htmlOverlays = htmlOverlays
         self.nodes = nodes
+    }
+}
+
+public struct GSXScene3DHTMLOverlay: Identifiable {
+    public var id: String
+    public var html: String
+    public var className: String
+    public var x: Double
+    public var y: Double
+    public var z: Double
+    public var width: Double
+    public var height: Double
+    public var opacity: Double
+    public var offsetX: Double
+    public var offsetY: Double
+    public var pointerEvents: String
+
+    public init(
+        id: String,
+        html: String,
+        className: String = "",
+        x: Double = 0,
+        y: Double = 0,
+        z: Double = 0,
+        width: Double = 1.8,
+        height: Double = 0.72,
+        opacity: Double = 1,
+        offsetX: Double = 0,
+        offsetY: Double = 0,
+        pointerEvents: String = "none"
+    ) {
+        self.id = id
+        self.html = html
+        self.className = className
+        self.x = x
+        self.y = y
+        self.z = z
+        self.width = width
+        self.height = height
+        self.opacity = opacity
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+        self.pointerEvents = pointerEvents
+    }
+
+    public var plainText: String {
+        html
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -111,13 +163,32 @@ public struct GSXScene3DView: View {
     }
 
     public var body: some View {
-        Canvas { context, size in
-            let bounds = CGRect(origin: .zero, size: size)
-            context.fill(Path(bounds), with: .color(Color(hex: scene.background)))
+        GeometryReader { proxy in
+            ZStack {
+                Canvas { context, size in
+                    let bounds = CGRect(origin: .zero, size: size)
+                    context.fill(Path(bounds), with: .color(Color(hex: scene.background)))
 
-            let renderableNodes = scene.nodes.filter { $0.tag == "mesh" || $0.tag == "model" || $0.tag == "points" || $0.tag == "instancedMesh" }
-            for index in renderableNodes.indices {
-                draw(renderableNodes[index], at: index, total: renderableNodes.count, in: context, size: size)
+                    let renderableNodes = scene.nodes.filter { $0.tag == "mesh" || $0.tag == "model" || $0.tag == "points" || $0.tag == "instancedMesh" || $0.tag == "computeParticles" }
+                    for index in renderableNodes.indices {
+                        draw(renderableNodes[index], at: index, total: renderableNodes.count, in: context, size: size)
+                    }
+                }
+
+                ForEach(scene.htmlOverlays) { overlay in
+                    Text(overlay.plainText)
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.58))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .opacity(max(0, min(overlay.opacity, 1)))
+                        .position(
+                            x: proxy.size.width * 0.5 + CGFloat(overlay.x) * 36 + CGFloat(overlay.offsetX),
+                            y: proxy.size.height * 0.5 - CGFloat(overlay.y) * 36 + CGFloat(overlay.z) * 4 + CGFloat(overlay.offsetY)
+                        )
+                }
             }
         }
         .aspectRatio(scene.width / max(scene.height, 1), contentMode: .fit)
@@ -154,6 +225,16 @@ public struct GSXScene3DView: View {
                 )
                 context.fill(Path(roundedRect: instanceRect, cornerSize: CGSize(width: 6, height: 6)), with: .color(color.opacity(0.84)))
                 context.stroke(Path(roundedRect: instanceRect, cornerSize: CGSize(width: 6, height: 6)), with: .color(.white.opacity(0.32)), lineWidth: 1)
+            }
+        case "computeParticles":
+            let count = max(min(node.count, 48), 1)
+            let radius = max(CGFloat(node.size) * 8, 2)
+            for i in 0..<count {
+                let angle = CGFloat(i) * 0.62
+                let spiral = CGFloat(i) / CGFloat(count) * max(width, height) * 0.5
+                let particleCenter = CGPoint(x: center.x + cos(angle) * spiral, y: center.y + sin(angle) * spiral * 0.6)
+                let pointRect = CGRect(x: particleCenter.x - radius, y: particleCenter.y - radius, width: radius * 2, height: radius * 2)
+                context.fill(Path(ellipseIn: pointRect), with: .color(color.opacity(0.72)))
             }
         case "points":
             let count = max(node.count, 1)

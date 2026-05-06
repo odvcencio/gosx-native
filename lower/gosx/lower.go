@@ -2,6 +2,7 @@ package gosx
 
 import (
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"unicode"
@@ -331,9 +332,6 @@ func (l *lowerer) lowerScene3DItem(id gosxir.NodeID) (nir.Scene3DItem, bool, err
 	if node.Kind != gosxir.NodeComponent || !target.IsScene3DTag(node.Tag) {
 		return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D child <%s> is not a supported scene tag", node.Tag)
 	}
-	if len(node.Children) > 0 {
-		return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D item <%s> children are not supported by native lowering yet", node.Tag)
-	}
 	item := nir.Scene3DItem{
 		Tag:  scene3DNativeTag(node.Tag),
 		Span: irSpan(node.Span),
@@ -347,7 +345,115 @@ func (l *lowerer) lowerScene3DItem(id gosxir.NodeID) (nir.Scene3DItem, bool, err
 			item.Attrs = append(item.Attrs, loweredAttr)
 		}
 	}
+	if len(node.Children) > 0 {
+		if !scene3DHTMLTag(node.Tag) {
+			return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D item <%s> children are not supported by native lowering yet", node.Tag)
+		}
+		if !scene3DHasHTMLAttr(item.Attrs) {
+			markup, err := l.lowerScene3DHTMLChildren(node.Children)
+			if err != nil {
+				return nir.Scene3DItem{}, false, err
+			}
+			if strings.TrimSpace(markup) != "" {
+				item.Attrs = append(item.Attrs, nir.Attr{
+					Name:  "html",
+					Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: "string", Value: strings.TrimSpace(markup)}},
+					Span:  irSpan(node.Span),
+				})
+			}
+		}
+	}
+	if scene3DHTMLTag(node.Tag) && !scene3DHasHTMLAttr(item.Attrs) {
+		return nir.Scene3DItem{}, false, fmt.Errorf("Scene3D <Html> requires literal html, markup, content, or static children")
+	}
 	return item, true, nil
+}
+
+func (l *lowerer) lowerScene3DHTMLChildren(children []gosxir.NodeID) (string, error) {
+	var sb strings.Builder
+	for _, childID := range children {
+		markup, err := l.lowerScene3DHTMLNode(childID)
+		if err != nil {
+			return "", err
+		}
+		sb.WriteString(markup)
+	}
+	return sb.String(), nil
+}
+
+func (l *lowerer) lowerScene3DHTMLNode(id gosxir.NodeID) (string, error) {
+	if int(id) >= len(l.prog.Nodes) {
+		return "", fmt.Errorf("node %d out of range", id)
+	}
+	node := l.prog.NodeAt(id)
+	switch node.Kind {
+	case gosxir.NodeText:
+		text := strings.TrimSpace(node.Text)
+		if text == "" {
+			return "", nil
+		}
+		return html.EscapeString(text), nil
+	case gosxir.NodeRawHTML:
+		return strings.TrimSpace(node.Text), nil
+	case gosxir.NodeElement:
+		var sb strings.Builder
+		sb.WriteByte('<')
+		sb.WriteString(node.Tag)
+		for _, attr := range node.Attrs {
+			markup, ok, err := lowerScene3DHTMLAttr(attr)
+			if err != nil {
+				return "", err
+			}
+			if ok {
+				sb.WriteByte(' ')
+				sb.WriteString(markup)
+			}
+		}
+		sb.WriteByte('>')
+		for _, childID := range node.Children {
+			child, err := l.lowerScene3DHTMLNode(childID)
+			if err != nil {
+				return "", err
+			}
+			sb.WriteString(child)
+		}
+		sb.WriteString("</")
+		sb.WriteString(node.Tag)
+		sb.WriteByte('>')
+		return sb.String(), nil
+	case gosxir.NodeFragment:
+		return l.lowerScene3DHTMLChildren(node.Children)
+	case gosxir.NodeExpr:
+		return "", fmt.Errorf("Scene3D <Html> children must be static for native lowering; use a literal html attribute for pre-rendered markup")
+	default:
+		return "", fmt.Errorf("Scene3D <Html> child kind %d is not supported by native lowering yet", node.Kind)
+	}
+}
+
+func lowerScene3DHTMLAttr(attr gosxir.Attr) (string, bool, error) {
+	if attr.IsEvent {
+		return "", false, fmt.Errorf("Scene3D <Html> child attribute %q cannot be an event handler", attr.Name)
+	}
+	switch attr.Kind {
+	case gosxir.AttrStatic:
+		return attr.Name + "=" + strconv.Quote(html.EscapeString(attr.Value)), true, nil
+	case gosxir.AttrBool:
+		return attr.Name, true, nil
+	case gosxir.AttrExpr, gosxir.AttrSpread:
+		return "", false, fmt.Errorf("Scene3D <Html> child attributes must be static for native lowering")
+	default:
+		return "", false, nil
+	}
+}
+
+func scene3DHasHTMLAttr(attrs []nir.Attr) bool {
+	for _, attr := range attrs {
+		switch attr.Name {
+		case "html", "markup", "content":
+			return true
+		}
+	}
+	return false
 }
 
 func (l *lowerer) lowerScene3DAttr(node *gosxir.Node, attr gosxir.Attr) (nir.Attr, bool, error) {
@@ -1008,6 +1114,10 @@ func scene3DNativeTag(tag string) string {
 		return "scene3d"
 	}
 	return lowerFirst(tag)
+}
+
+func scene3DHTMLTag(tag string) bool {
+	return strings.EqualFold(tag, "html")
 }
 
 func isConditionalComponent(tag string) bool {

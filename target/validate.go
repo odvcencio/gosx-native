@@ -292,7 +292,7 @@ func Scene3DDisplayName(tag string) string {
 func Scene3DNativeTagSupported(tag string) bool {
 	switch normalizeScene3DTag(tag) {
 	case "scene3d", "camera", "environment", "mesh", "model", "points",
-		"instancedmesh", "directionallight", "pointlight", "ambientlight",
+		"html", "instancedmesh", "computeparticles", "directionallight", "pointlight", "ambientlight",
 		"spotlight", "hemispherelight", "material",
 		"postfx.bloom", "postfx.vignette", "postfx.colorgrading", "postfx.tonemap":
 		return true

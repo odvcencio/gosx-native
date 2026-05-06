@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "environment": {
+    "background": "#081119"
+  },
+  "materials": [
+    {
+      "kind": "standard",
+      "color": "#8de1ff"
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "mesh",
+      "id": "hero",
+      "transform": {},
+      "mesh": {
+        "kind": "box",
+        "width": 1.4,
+        "height": 1,
+        "depth": 0.7
+      }
+    }
+  ],
+  "metadata": {
+    "html": [
+      {
+        "className": "scene-hud",
+        "height": 0.8,
+        "html": "\u003caside class=\"scene-hud__card\"\u003e\u003cstrong\u003eHull\u003c/strong\u003e\u003cspan\u003estable\u003c/span\u003e\u003c/aside\u003e",
+        "id": "hud",
+        "opacity": 0.95,
+        "pointerEvents": "auto",
+        "width": 1.6,
+        "x": 0,
+        "y": 1.1,
+        "z": 0.2
+      }
+    ]
+  }
+}

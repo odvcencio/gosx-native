@@ -22,21 +22,30 @@ func CanonicalIR(element *nir.Element) (scene.IR, error) {
 	props := scene.Scene3DProps{
 		Camera: scene.IRCamera{Kind: "perspective"},
 	}
+	state := lowerState{props: props}
 	if background, ok, err := stringAttr(element.Attrs, "background"); err != nil {
 		return scene.IR{}, err
 	} else if ok {
-		props.Environment.Background = background
+		state.props.Environment.Background = background
 	}
 	for _, item := range scene3DItems(element) {
-		if err := lowerItem(&props, item); err != nil {
+		if err := lowerItem(&state, item); err != nil {
 			return scene.IR{}, err
 		}
 	}
-	ir := scene.LowerScene3D(props)
+	ir := scene.LowerScene3D(state.props)
+	if len(state.html) > 0 {
+		ir.Metadata = map[string]any{"html": state.html}
+	}
 	if err := ir.Validate(); err != nil {
 		return scene.IR{}, err
 	}
 	return ir, nil
+}
+
+type lowerState struct {
+	props scene.Scene3DProps
+	html  []map[string]any
 }
 
 func scene3DItems(element *nir.Element) []nir.Scene3DItem {
@@ -58,7 +67,8 @@ func scene3DItems(element *nir.Element) []nir.Scene3DItem {
 	return items
 }
 
-func lowerItem(props *scene.Scene3DProps, item nir.Scene3DItem) error {
+func lowerItem(state *lowerState, item nir.Scene3DItem) error {
+	props := &state.props
 	switch normalizeTag(item.Tag) {
 	case "camera":
 		camera, err := lowerCamera(item.Attrs)
@@ -105,6 +115,18 @@ func lowerItem(props *scene.Scene3DProps, item nir.Scene3DItem) error {
 			return err
 		}
 		props.Nodes = append(props.Nodes, node)
+	case "computeparticles":
+		node, err := lowerComputeParticles(item.Attrs)
+		if err != nil {
+			return err
+		}
+		props.Nodes = append(props.Nodes, node)
+	case "html":
+		overlay, err := lowerHTMLOverlay(item.Attrs)
+		if err != nil {
+			return err
+		}
+		state.html = append(state.html, overlay)
 	case "postfx.bloom", "postfx.vignette", "postfx.colorgrading", "postfx.tonemap":
 		effect, err := lowerPostEffect(item.Tag, item.Attrs)
 		if err != nil {
@@ -468,6 +490,160 @@ func lowerPoints(attrs []nir.Attr) (scene.IRNode, error) {
 	return scene.LowerPoints(props), nil
 }
 
+func lowerComputeParticles(attrs []nir.Attr) (scene.IRNode, error) {
+	props := scene.ComputeParticlesElementProps{
+		Emitter: scene.IRParticleEmitter{Kind: "point"},
+	}
+	var err error
+	if props.ID, err = stringAttrDefault(attrs, "id", props.ID); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Count, err = intAttrDefault(attrs, "count", props.Count); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Bounds, err = floatAttrDefault(attrs, "bounds", props.Bounds); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Kind, err = firstStringAttrDefault(attrs, props.Emitter.Kind, "emitterKind", "kind"); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.X, err = floatAttrDefault(attrs, "x", props.Emitter.X); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Y, err = floatAttrDefault(attrs, "y", props.Emitter.Y); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Z, err = floatAttrDefault(attrs, "z", props.Emitter.Z); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.RotationX, err = floatAttrDefault(attrs, "rotationX", props.Emitter.RotationX); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.RotationY, err = floatAttrDefault(attrs, "rotationY", props.Emitter.RotationY); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.RotationZ, err = floatAttrDefault(attrs, "rotationZ", props.Emitter.RotationZ); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.SpinX, err = floatAttrDefault(attrs, "spinX", props.Emitter.SpinX); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.SpinY, err = floatAttrDefault(attrs, "spinY", props.Emitter.SpinY); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.SpinZ, err = floatAttrDefault(attrs, "spinZ", props.Emitter.SpinZ); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Radius, err = floatAttrDefault(attrs, "radius", props.Emitter.Radius); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Rate, err = floatAttrDefault(attrs, "rate", props.Emitter.Rate); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Lifetime, err = floatAttrDefault(attrs, "lifetime", props.Emitter.Lifetime); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Arms, err = intAttrDefault(attrs, "arms", props.Emitter.Arms); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Wind, err = floatAttrDefault(attrs, "wind", props.Emitter.Wind); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Emitter.Scatter, err = floatAttrDefault(attrs, "scatter", props.Emitter.Scatter); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.Color, err = stringAttrDefault(attrs, "color", props.Material.Color); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.ColorEnd, err = stringAttrDefault(attrs, "colorEnd", props.Material.ColorEnd); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.Style, err = stringAttrDefault(attrs, "style", props.Material.Style); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.Size, err = floatAttrDefault(attrs, "size", props.Material.Size); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.SizeEnd, err = floatAttrDefault(attrs, "sizeEnd", props.Material.SizeEnd); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.Opacity, err = floatAttrDefault(attrs, "opacity", props.Material.Opacity); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.OpacityEnd, err = floatAttrDefault(attrs, "opacityEnd", props.Material.OpacityEnd); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.BlendMode, err = stringAttrDefault(attrs, "blendMode", props.Material.BlendMode); err != nil {
+		return scene.IRNode{}, err
+	}
+	if props.Material.Attenuation, err = boolAttrDefault(attrs, "attenuation", props.Material.Attenuation); err != nil {
+		return scene.IRNode{}, err
+	}
+	if force, ok, err := lowerParticleForce(attrs); err != nil {
+		return scene.IRNode{}, err
+	} else if ok {
+		props.Forces = append(props.Forces, force)
+	}
+	return scene.LowerComputeParticles(props), nil
+}
+
+func lowerParticleForce(attrs []nir.Attr) (scene.IRParticleForce, bool, error) {
+	var force scene.IRParticleForce
+	var err error
+	if force.Kind, err = firstStringAttrDefault(attrs, force.Kind, "force", "forceKind"); err != nil {
+		return scene.IRParticleForce{}, false, err
+	}
+	if force.Kind == "" {
+		return scene.IRParticleForce{}, false, nil
+	}
+	if force.Strength, err = floatAttrDefault(attrs, "forceStrength", force.Strength); err != nil {
+		return scene.IRParticleForce{}, false, err
+	}
+	if force.X, err = floatAttrDefault(attrs, "forceX", force.X); err != nil {
+		return scene.IRParticleForce{}, false, err
+	}
+	if force.Y, err = floatAttrDefault(attrs, "forceY", force.Y); err != nil {
+		return scene.IRParticleForce{}, false, err
+	}
+	if force.Z, err = floatAttrDefault(attrs, "forceZ", force.Z); err != nil {
+		return scene.IRParticleForce{}, false, err
+	}
+	if force.Frequency, err = floatAttrDefault(attrs, "forceFrequency", force.Frequency); err != nil {
+		return scene.IRParticleForce{}, false, err
+	}
+	return force, true, nil
+}
+
+func lowerHTMLOverlay(attrs []nir.Attr) (map[string]any, error) {
+	out := map[string]any{}
+	markup, ok, err := firstStringAttr(attrs, "html", "markup", "content")
+	if err != nil {
+		return nil, err
+	}
+	if !ok || strings.TrimSpace(markup) == "" {
+		return nil, fmt.Errorf("Scene3D <Html> requires literal html, markup, content, or static children")
+	}
+	out["html"] = markup
+	if err := setStringMetadata(out, attrs, "id", "id"); err != nil {
+		return nil, err
+	}
+	if err := setStringMetadata(out, attrs, "className", "className", "class"); err != nil {
+		return nil, err
+	}
+	for _, name := range []string{"x", "y", "z", "priority", "width", "height", "scale", "opacity", "offsetX", "offsetY", "anchorX", "anchorY"} {
+		if err := setFloatMetadata(out, attrs, name, name); err != nil {
+			return nil, err
+		}
+	}
+	if err := setStringMetadata(out, attrs, "pointerEvents", "pointerEvents"); err != nil {
+		return nil, err
+	}
+	if err := setBoolMetadata(out, attrs, "occlude", "occlude"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func lowerPostEffect(tag string, attrs []nir.Attr) (scene.IRPostEffect, error) {
 	effect := scene.IRPostEffect{Kind: postEffectKind(tag)}
 	var err error
@@ -611,6 +787,53 @@ func postEffectKind(tag string) string {
 	default:
 		return normalizeTag(tag)
 	}
+}
+
+func firstStringAttrDefault(attrs []nir.Attr, fallback string, names ...string) (string, error) {
+	value, ok, err := firstStringAttr(attrs, names...)
+	if err != nil || !ok {
+		return fallback, err
+	}
+	return value, nil
+}
+
+func firstStringAttr(attrs []nir.Attr, names ...string) (string, bool, error) {
+	for _, name := range names {
+		value, ok, err := stringAttr(attrs, name)
+		if err != nil || ok {
+			return value, ok, err
+		}
+	}
+	return "", false, nil
+}
+
+func setStringMetadata(out map[string]any, attrs []nir.Attr, key string, names ...string) error {
+	value, ok, err := firstStringAttr(attrs, names...)
+	if err != nil || !ok {
+		return err
+	}
+	if strings.TrimSpace(value) != "" {
+		out[key] = value
+	}
+	return nil
+}
+
+func setFloatMetadata(out map[string]any, attrs []nir.Attr, key, name string) error {
+	value, ok, err := floatAttr(attrs, name)
+	if err != nil || !ok {
+		return err
+	}
+	out[key] = value
+	return nil
+}
+
+func setBoolMetadata(out map[string]any, attrs []nir.Attr, key, name string) error {
+	value, ok, err := boolAttr(attrs, name)
+	if err != nil || !ok {
+		return err
+	}
+	out[key] = value
+	return nil
 }
 
 func stringAttrDefault(attrs []nir.Attr, name, fallback string) (string, error) {

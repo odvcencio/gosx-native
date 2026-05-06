@@ -125,6 +125,7 @@ func emitScene3D(n *nir.Element, indent int) string {
 	grandchildPad := strings.Repeat("    ", indent+2)
 	nodes := scene3DNodes(n)
 	postEffects := scene3DPostEffects(n)
+	htmlOverlays := scene3DHTMLOverlays(n)
 
 	var sb strings.Builder
 	sb.WriteString(pad)
@@ -150,6 +151,21 @@ func emitScene3D(n *nir.Element, indent int) string {
 			}
 			sb.WriteString(grandchildPad)
 			sb.WriteString(emitScene3DPostEffect(effect))
+		}
+		sb.WriteByte('\n')
+		sb.WriteString(childPad)
+		sb.WriteString("]")
+	}
+	if len(htmlOverlays) > 0 {
+		sb.WriteString(",\n")
+		sb.WriteString(childPad)
+		sb.WriteString("htmlOverlays: [\n")
+		for i, overlay := range htmlOverlays {
+			if i > 0 {
+				sb.WriteString(",\n")
+			}
+			sb.WriteString(grandchildPad)
+			sb.WriteString(emitScene3DHTMLOverlay(overlay, i))
 		}
 		sb.WriteByte('\n')
 		sb.WriteString(childPad)
@@ -185,6 +201,11 @@ type scene3DPostEffect struct {
 	Attrs []nir.Attr
 }
 
+type scene3DHTMLOverlay struct {
+	Tag   string
+	Attrs []nir.Attr
+}
+
 func emitScene3DNode(n scene3DNode, index int) string {
 	id := scene3DStringAttrFromAttrs(n.Attrs, "id", fmt.Sprintf("%s-%d", n.Tag, index))
 	return fmt.Sprintf(
@@ -201,6 +222,25 @@ func emitScene3DNode(n scene3DNode, index int) string {
 		scene3DDoubleAttrFromAttrs(n.Attrs, "depth", "1"),
 		scene3DIntAttrFromAttrs(n.Attrs, "count", "0"),
 		scene3DDoubleAttrFromAttrs(n.Attrs, "size", "0"),
+	)
+}
+
+func emitScene3DHTMLOverlay(overlay scene3DHTMLOverlay, index int) string {
+	id := scene3DStringAttrFromAttrs(overlay.Attrs, "id", fmt.Sprintf("html-%d", index))
+	return fmt.Sprintf(
+		"GSXScene3DHTMLOverlay(id: %s, html: %s, className: %s, x: %s, y: %s, z: %s, width: %s, height: %s, opacity: %s, offsetX: %s, offsetY: %s, pointerEvents: %s)",
+		id,
+		scene3DHTMLMarkupAttrFromAttrs(overlay.Attrs),
+		scene3DStringAttrFromAttrsAny(overlay.Attrs, "", "className", "class"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "x", "0"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "y", "0"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "z", "0"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "width", "1.8"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "height", "0.72"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "opacity", "1"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "offsetX", "0"),
+		scene3DDoubleAttrFromAttrs(overlay.Attrs, "offsetY", "0"),
+		scene3DStringAttrFromAttrs(overlay.Attrs, "pointerEvents", "none"),
 	)
 }
 
@@ -268,13 +308,40 @@ func scene3DPostEffects(n *nir.Element) []scene3DPostEffect {
 	return effects
 }
 
+func scene3DHTMLOverlays(n *nir.Element) []scene3DHTMLOverlay {
+	if n.Scene3D != nil {
+		overlays := make([]scene3DHTMLOverlay, 0, len(n.Scene3D.Items))
+		for _, item := range n.Scene3D.Items {
+			if scene3DHTMLTag(item.Tag) {
+				overlays = append(overlays, scene3DHTMLOverlay{Tag: item.Tag, Attrs: item.Attrs})
+			}
+		}
+		return overlays
+	}
+	overlays := make([]scene3DHTMLOverlay, 0, len(n.Children))
+	for _, child := range n.Children {
+		element, ok := child.(*nir.Element)
+		if !ok {
+			continue
+		}
+		if scene3DHTMLTag(element.Tag) {
+			overlays = append(overlays, scene3DHTMLOverlay{Tag: element.Tag, Attrs: element.Attrs})
+		}
+	}
+	return overlays
+}
+
 func scene3DRenderableNode(tag string) bool {
 	switch tag {
-	case "mesh", "model", "points", "instancedMesh":
+	case "mesh", "model", "points", "instancedMesh", "computeParticles":
 		return true
 	default:
 		return false
 	}
+}
+
+func scene3DHTMLTag(tag string) bool {
+	return strings.EqualFold(strings.TrimSpace(tag), "html")
 }
 
 func scene3DPostEffectKind(tag string) string {
@@ -686,6 +753,20 @@ func scene3DStringAttrFromAttrs(attrs []nir.Attr, name, fallback string) string 
 		return strconv.Quote(fallback)
 	}
 	return emitRxExpr(expr)
+}
+
+func scene3DStringAttrFromAttrsAny(attrs []nir.Attr, fallback string, names ...string) string {
+	for _, name := range names {
+		expr := attrExprFromAttrs(attrs, name)
+		if expr != nil {
+			return emitRxExpr(expr)
+		}
+	}
+	return strconv.Quote(fallback)
+}
+
+func scene3DHTMLMarkupAttrFromAttrs(attrs []nir.Attr) string {
+	return scene3DStringAttrFromAttrsAny(attrs, "", "html", "markup", "content")
 }
 
 func scene3DDoubleAttr(n *nir.Element, name, fallback string) string {

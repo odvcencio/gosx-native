@@ -20,6 +20,8 @@ func TestValidateScene3DStaticSurfaceAccepted(t *testing.T) {
 						{Tag: "instancedMesh"},
 						{Tag: "points"},
 						{Tag: "postFX.Bloom"},
+						{Tag: "computeParticles"},
+						{Tag: "html"},
 					},
 				},
 			},
@@ -38,7 +40,7 @@ func TestValidateScene3DUnsupportedTagReportsDiagnostic(t *testing.T) {
 				Tag: "scene3d",
 				Scene3D: &nir.Scene3DPayload{
 					Items: []nir.Scene3DItem{
-						{Tag: "computeParticles"},
+						{Tag: "physicsWorld"},
 					},
 				},
 			},
@@ -48,7 +50,7 @@ func TestValidateScene3DUnsupportedTagReportsDiagnostic(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected validation error")
 	}
-	if !strings.Contains(err.Error(), "Scene3D native backend does not support <ComputeParticles> yet") {
+	if !strings.Contains(err.Error(), "unsupported Scene3D item <physicsWorld>") {
 		t.Fatalf("expected Scene3D diagnostic, got %v", err)
 	}
 }

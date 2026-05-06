@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "environment": {},
+  "nodes": [
+    {
+      "kind": "compute-particles",
+      "id": "sparks",
+      "transform": {},
+      "compute": {
+        "count": 128,
+        "emitter": {
+          "kind": "spiral",
+          "y": 0.2,
+          "radius": 1.5,
+          "rate": 64,
+          "lifetime": 2.5,
+          "arms": 3,
+          "wind": 0.1,
+          "scatter": 0.2
+        },
+        "forces": [
+          {
+            "kind": "orbit",
+            "strength": 0.4,
+            "y": 1,
+            "frequency": 0.7
+          }
+        ],
+        "material": {
+          "color": "#ffd48f",
+          "colorEnd": "#5eb7ff",
+          "style": "focus",
+          "size": 0.12,
+          "sizeEnd": 0.02,
+          "opacity": 0.9,
+          "opacityEnd": 0.1,
+          "blendMode": "additive",
+          "attenuation": true
+        },
+        "bounds": 8
+      },
+      "capabilities": [
+        "compute"
+      ]
+    }
+  ]
+}
