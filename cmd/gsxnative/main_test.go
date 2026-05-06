@@ -115,6 +115,20 @@ func TestEmitAndroidScene3DPrintsRuntimeSurface(t *testing.T) {
 	}
 }
 
+func TestSceneConformStaticScene3DPasses(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "scene-conform", "../../testdata/corpus/go/scene3d.gsx")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), "scene-conform: ../../testdata/corpus/go/scene3d.gsx OK") {
+		t.Fatalf("expected scene conformance success, got:\n%s", out.String())
+	}
+}
+
 func TestEmitIOSGoSXCounterPrintsSwift(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "emit", "ios", "../../testdata/corpus/go/counter.gsx")
 	var out bytes.Buffer

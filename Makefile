@@ -1,10 +1,13 @@
-.PHONY: test smoke build-ios build-android build-all build-scene3d-ios build-scene3d-android android-smoke android-connected android-managed demo lint
+.PHONY: test smoke scene-conform build-ios build-android build-all build-scene3d-ios build-scene3d-android android-smoke android-connected android-managed demo lint
 
 test:
 	go test ./...
 
 smoke:
 	cd test/e2e && go test -tags smoke -v ./...
+
+scene-conform:
+	go run ./cmd/gsxnative scene-conform
 
 build-ios:
 	go run ./cmd/gsxnative build ios

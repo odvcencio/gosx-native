@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "environment": {
+    "ambientColor": "#f4fbff",
+    "ambientIntensity": 0.2
+  },
+  "materials": [
+    {
+      "kind": "standard",
+      "color": "#8de1ff"
+    },
+    {
+      "kind": "standard"
+    }
+  ],
+  "lights": [
+    {
+      "id": "sun",
+      "kind": "directional",
+      "color": "#fff1d6",
+      "intensity": 1.2
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "mesh",
+      "id": "hero",
+      "transform": {},
+      "mesh": {
+        "kind": "box",
+        "width": 1.8,
+        "height": 1.2,
+        "depth": 0.8
+      }
+    },
+    {
+      "kind": "mesh",
+      "id": "ship",
+      "materialIndex": 1,
+      "transform": {},
+      "mesh": {
+        "src": "/models/ship.glb",
+        "static": true,
+        "animation": "idle"
+      }
+    },
+    {
+      "kind": "points",
+      "id": "stars",
+      "transform": {},
+      "points": {
+        "count": 2,
+        "size": 0.5
+      }
+    }
+  ]
+}

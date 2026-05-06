@@ -43,6 +43,9 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      - name: Scene3D conformance
+        working-directory: gosx-native
+        run: make scene-conform
 
   build-smoke-macos:
     runs-on: macos-latest
