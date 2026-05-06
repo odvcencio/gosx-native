@@ -4,8 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
@@ -94,7 +94,7 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
             .semantics { contentDescription = "Scene3D" }
             .testTag("Scene3D"),
     ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(color = colorFromHex(scene.background), size = size)
             val renderableNodes = scene.nodes.filter { it.tag == "mesh" || it.tag == "model" || it.tag == "points" || it.tag == "instancedMesh" || it.tag == "computeParticles" }
             renderableNodes.forEachIndexed { index, node ->
