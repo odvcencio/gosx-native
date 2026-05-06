@@ -344,7 +344,7 @@ func scene3DNodes(n *nir.Element) []scene3DNode {
 
 func scene3DRenderableNode(tag string) bool {
 	switch tag {
-	case "mesh", "model", "points":
+	case "mesh", "model", "points", "instancedMesh":
 		return true
 	default:
 		return false

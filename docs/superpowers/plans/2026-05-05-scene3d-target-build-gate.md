@@ -19,7 +19,8 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - The iOS and Android smoke apps mount the generated SceneDemo and assert the native Scene3D accessibility/test-tag surface exists.
 - Scene3D now lowers into native NIR payloads instead of generic element children.
 - `gsxnative scene-conform` now gates static Scene3D fixtures against canonical `gosx/scene.IR` plus iOS and Android source goldens.
+- `<InstancedMesh>` now lowers to canonical `scene.IR` kind `instanced-mesh`, has source goldens for iOS and Android, and is included in the default conformance gate.
 - Choose the durable iOS backend beyond the static SwiftUI canvas surface: SceneKit, Metal, or a portable renderer bridge.
 - Choose the durable Android backend beyond the static Compose canvas surface: Filament, Vulkan/AGSL bridge, or a portable renderer bridge.
-- Add native support for `<Html>`, `<InstancedMesh>`, `<ComputeParticles>`, and `<PostFX.*>` after the durable backend is selected.
+- Add native support for `<Html>`, `<ComputeParticles>`, and `<PostFX.*>` after the durable backend is selected.
 - Add cross-target Scene3D conformance fixtures for native render output.

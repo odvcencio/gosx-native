@@ -49,7 +49,7 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
             .testTag("Scene3D"),
     ) {
         drawRect(color = colorFromHex(scene.background), size = size)
-        val renderableNodes = scene.nodes.filter { it.tag == "mesh" || it.tag == "model" || it.tag == "points" }
+        val renderableNodes = scene.nodes.filter { it.tag == "mesh" || it.tag == "model" || it.tag == "points" || it.tag == "instancedMesh" }
         renderableNodes.forEachIndexed { index, node ->
             drawSceneNode(node, index, renderableNodes.size)
         }
@@ -70,6 +70,19 @@ private fun DrawScope.drawSceneNode(node: GSXScene3DNode, index: Int, total: Int
     val color = colorFromHex(node.color)
 
     when (node.tag) {
+        "instancedMesh" -> {
+            val count = max(node.count, 1)
+            val instanceWidth = max(width * 0.42f, 10f)
+            val instanceHeight = max(height * 0.42f, 10f)
+            repeat(count) { i ->
+                val offset = (i.toFloat() - (count - 1).toFloat() / 2f) * instanceWidth * 0.72f
+                val rise = ((i % 2) * 2 - 1).toFloat() * instanceHeight * 0.18f
+                val instanceTopLeft = Offset(center.x + offset - instanceWidth / 2f, center.y + rise - instanceHeight / 2f)
+                val instanceSize = Size(instanceWidth, instanceHeight)
+                drawRoundRect(color = color.copy(alpha = 0.84f), topLeft = instanceTopLeft, size = instanceSize, cornerRadius = CornerRadius(6f, 6f))
+                drawRoundRect(color = Color.White.copy(alpha = 0.32f), topLeft = instanceTopLeft, size = instanceSize, cornerRadius = CornerRadius(6f, 6f), style = Stroke(width = 1f))
+            }
+        }
         "points" -> {
             val count = max(node.count, 1)
             val radius = max(node.size.toFloat() * 8f, 3f)

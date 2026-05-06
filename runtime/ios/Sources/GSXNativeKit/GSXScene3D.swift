@@ -70,7 +70,7 @@ public struct GSXScene3DView: View {
             let bounds = CGRect(origin: .zero, size: size)
             context.fill(Path(bounds), with: .color(Color(hex: scene.background)))
 
-            let renderableNodes = scene.nodes.filter { $0.tag == "mesh" || $0.tag == "model" || $0.tag == "points" }
+            let renderableNodes = scene.nodes.filter { $0.tag == "mesh" || $0.tag == "model" || $0.tag == "points" || $0.tag == "instancedMesh" }
             for index in renderableNodes.indices {
                 draw(renderableNodes[index], at: index, total: renderableNodes.count, in: context, size: size)
             }
@@ -94,6 +94,22 @@ public struct GSXScene3DView: View {
         let color = Color(hex: node.color)
 
         switch node.tag {
+        case "instancedMesh":
+            let count = max(node.count, 1)
+            let instanceWidth = max(width * 0.42, 10)
+            let instanceHeight = max(height * 0.42, 10)
+            for i in 0..<count {
+                let offset = (CGFloat(i) - CGFloat(count - 1) / 2) * instanceWidth * 0.72
+                let rise = CGFloat((i % 2) * 2 - 1) * instanceHeight * 0.18
+                let instanceRect = CGRect(
+                    x: center.x + offset - instanceWidth / 2,
+                    y: center.y + rise - instanceHeight / 2,
+                    width: instanceWidth,
+                    height: instanceHeight
+                )
+                context.fill(Path(roundedRect: instanceRect, cornerSize: CGSize(width: 6, height: 6)), with: .color(color.opacity(0.84)))
+                context.stroke(Path(roundedRect: instanceRect, cornerSize: CGSize(width: 6, height: 6)), with: .color(.white.opacity(0.32)), lineWidth: 1)
+            }
         case "points":
             let count = max(node.count, 1)
             let radius = max(CGFloat(node.size) * 8, 3)

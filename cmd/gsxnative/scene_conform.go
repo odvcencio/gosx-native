@@ -31,7 +31,7 @@ func runSceneConform(args []string) error {
 		return err
 	}
 	if len(sources) == 0 {
-		sources = []string{filepath.Join(root, "testdata/corpus/go/scene3d.gsx")}
+		sources = defaultSceneConformSources(root)
 	}
 	for _, source := range sources {
 		if err := sceneConformSource(source, opts); err != nil {
@@ -39,6 +39,13 @@ func runSceneConform(args []string) error {
 		}
 	}
 	return nil
+}
+
+func defaultSceneConformSources(root string) []string {
+	return []string{
+		filepath.Join(root, "testdata/corpus/go/scene3d.gsx"),
+		filepath.Join(root, "testdata/corpus/go/scene3d_instancing.gsx"),
+	}
 }
 
 func parseSceneConformOptions(root string, args []string) (sceneConformOptions, []string, error) {

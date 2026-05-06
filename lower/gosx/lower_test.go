@@ -401,6 +401,21 @@ func TestLowerScene3DCoversComposableSceneTags(t *testing.T) {
 	requireScene3DItem(t, scene.Scene3D.Items[5], "points")
 }
 
+func TestLowerScene3DCoversInstancedMeshTag(t *testing.T) {
+	mod := lowerFixture(t, "scene3d_instancing.gsx")
+	component := findComponent(t, mod, "InstancingDemo")
+	scene := requireElement(t, component.Body, "scene3d")
+	if scene.Scene3D == nil {
+		t.Fatalf("missing scene3d payload")
+	}
+	if got := len(scene.Scene3D.Items); got != 4 {
+		t.Fatalf("scene3d items = %d, want 4", got)
+	}
+	instanced := requireScene3DItem(t, scene.Scene3D.Items[3], "instancedMesh")
+	requireScene3DItemAttrLiteral(t, instanced, "count", "int", "3")
+	requireScene3DItemAttrLiteral(t, instanced, "transforms", "string", "1,0,0,0,0,1,0,0,0,0,1,0,-1.2,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0.2,0,1,1,0,0,0,0,1,0,0,0,0,1,0,1.2,-0.1,0,1")
+}
+
 func lowerFixture(t *testing.T, name string) *nir.Module {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("../../testdata/corpus/go", name))

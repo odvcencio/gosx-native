@@ -17,6 +17,7 @@ func TestValidateScene3DStaticSurfaceAccepted(t *testing.T) {
 					Items: []nir.Scene3DItem{
 						{Tag: "camera"},
 						{Tag: "mesh"},
+						{Tag: "instancedMesh"},
 						{Tag: "points"},
 					},
 				},

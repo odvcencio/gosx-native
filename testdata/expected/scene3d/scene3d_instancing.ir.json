@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "camera": {
+    "kind": "perspective",
+    "z": 9,
+    "fov": 70,
+    "near": 0.1,
+    "far": 128
+  },
+  "environment": {
+    "ambientColor": "#f4fbff",
+    "ambientIntensity": 0.2,
+    "background": "#101820"
+  },
+  "materials": [
+    {
+      "kind": "standard",
+      "color": "#f7c76b",
+      "roughness": 0.4,
+      "metalness": 0.1
+    }
+  ],
+  "lights": [
+    {
+      "id": "sun",
+      "kind": "directional",
+      "color": "#fff1d6",
+      "intensity": 1.2
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "instanced-mesh",
+      "id": "asteroids",
+      "transform": {},
+      "instancedMesh": {
+        "count": 3,
+        "kind": "box",
+        "width": 0.8,
+        "height": 0.5,
+        "depth": 0.4,
+        "transforms": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          -1.2,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0.2,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1.2,
+          -0.1,
+          0,
+          1
+        ],
+        "colors": [
+          "#f7c76b",
+          "#93c5fd",
+          "#fca5a5"
+        ]
+      }
+    }
+  ]
+}

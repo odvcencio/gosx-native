@@ -2,7 +2,7 @@
 
 The mobile counterpart to [gosx](https://github.com/odvcencio/gosx). React Native is to React what gosx-native is to gosx: same component model, same reactive primitives, same scene graph, different rendering targets.
 
-**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates Compose source and assembles a debug APK in CI. GoSX `.gsx` Counter, Panel, Greeter, Derived, Toggle, Profile, Roster, FormControls, Expressions, and static Scene3D fixtures now lower through the shared NIR and emit deterministic SwiftUI/Compose source. Scene3D lowers into a typed NIR payload, maps into the canonical `gosx/scene.IR` conformance contract, renders static meshes/models/points through native runtime views, and CI regenerates, diffs, compiles, hosts, and UI-asserts checked-in Scene3D demo sources for both native app shells. Compute, HTML, instancing, and post-fx tags still fail target validation until those native backends land.**
+**Status: Android and iOS counter vertical slices compile. The iOS demo builds and passes a Simulator UI smoke test; the Android demo regenerates Compose source and assembles a debug APK in CI. GoSX `.gsx` Counter, Panel, Greeter, Derived, Toggle, Profile, Roster, FormControls, Expressions, and static Scene3D fixtures now lower through the shared NIR and emit deterministic SwiftUI/Compose source. Scene3D lowers into a typed NIR payload, maps into the canonical `gosx/scene.IR` conformance contract, renders static meshes/models/points and instanced mesh batches through native runtime views, and CI regenerates, diffs, compiles, hosts, and UI-asserts checked-in Scene3D demo sources for both native app shells. Compute, HTML, and post-fx tags still fail target validation until those native backends land.**
 
 See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers/specs/2026-05-04-gosx-native-design.md) for the design.
 
@@ -12,6 +12,7 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 - GoSX source to iOS: `go run ./cmd/gsxnative emit ios testdata/corpus/go/counter.gsx`
 - GoSX source to Android: `go run ./cmd/gsxnative emit android testdata/corpus/go/counter.gsx`
 - Scene3D static surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d.gsx`
+- Scene3D instancing surface: `go run ./cmd/gsxnative emit ios testdata/corpus/go/scene3d_instancing.gsx`
 - Scene3D unsupported capability check: `go run ./cmd/gsxnative check ios testdata/corpus/go/scene3d_compute.gsx`
 - Scene3D conformance: `go run ./cmd/gsxnative scene-conform`
 - Broader GoSX handler fixture: `go run ./cmd/gsxnative emit ios testdata/corpus/go/panel.gsx`

@@ -92,6 +92,13 @@ func lowerItem(props *scene.Scene3DProps, item nir.Scene3DItem) error {
 		}
 		node.MaterialIndex = appendMaterial(&props.Materials, material)
 		props.Nodes = append(props.Nodes, node)
+	case "instancedmesh":
+		node, material, err := lowerInstancedMesh(item.Attrs)
+		if err != nil {
+			return err
+		}
+		node.MaterialIndex = appendMaterial(&props.Materials, material)
+		props.Nodes = append(props.Nodes, node)
 	case "points":
 		node, err := lowerPoints(item.Attrs)
 		if err != nil {
@@ -292,7 +299,6 @@ func lowerLight(tag string, attrs []nir.Attr) (scene.IRLight, error) {
 }
 
 func lowerMesh(attrs []nir.Attr, model bool) (scene.IRNode, scene.IRMaterial, error) {
-	material := scene.IRMaterial{Kind: "standard"}
 	var props scene.MeshElementProps
 	var err error
 	if props.ID, err = stringAttrDefault(attrs, "id", props.ID); err != nil {
@@ -339,31 +345,88 @@ func lowerMesh(attrs []nir.Attr, model bool) (scene.IRNode, scene.IRMaterial, er
 	} else if ok {
 		props.Static = &static
 	}
-	if color, ok, err := stringAttr(attrs, "color"); err != nil {
-		return scene.IRNode{}, scene.IRMaterial{}, err
-	} else if ok {
-		material.Color = color
-	}
-	if materialKind, ok, err := stringAttr(attrs, "material"); err != nil {
-		return scene.IRNode{}, scene.IRMaterial{}, err
-	} else if ok {
-		material.Kind = materialKind
-	}
-	if materialKind, ok, err := stringAttr(attrs, "materialKind"); err != nil {
-		return scene.IRNode{}, scene.IRMaterial{}, err
-	} else if ok {
-		material.Kind = materialKind
-	}
-	if material.Roughness, err = floatAttrDefault(attrs, "roughness", material.Roughness); err != nil {
-		return scene.IRNode{}, scene.IRMaterial{}, err
-	}
-	if material.Metalness, err = floatAttrDefault(attrs, "metalness", material.Metalness); err != nil {
+	material, err := lowerMaterial(attrs)
+	if err != nil {
 		return scene.IRNode{}, scene.IRMaterial{}, err
 	}
 	if model && props.Src == "" {
 		return scene.IRNode{}, scene.IRMaterial{}, fmt.Errorf("Scene3D <Model> requires src for canonical IR conformance")
 	}
 	return scene.LowerMesh(props), material, nil
+}
+
+func lowerInstancedMesh(attrs []nir.Attr) (scene.IRNode, scene.IRMaterial, error) {
+	var props scene.InstancedMeshElementProps
+	var err error
+	if props.ID, err = stringAttrDefault(attrs, "id", props.ID); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.Kind, err = stringAttrDefault(attrs, "kind", props.Kind); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	countSet := false
+	if count, ok, err := intAttr(attrs, "count"); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	} else if ok {
+		props.Count = count
+		countSet = true
+	}
+	if props.Width, err = floatAttrDefault(attrs, "width", props.Width); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.Height, err = floatAttrDefault(attrs, "height", props.Height); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.Depth, err = floatAttrDefault(attrs, "depth", props.Depth); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.Radius, err = floatAttrDefault(attrs, "radius", props.Radius); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.Segments, err = intAttrDefault(attrs, "segments", props.Segments); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.CastShadow, err = boolAttrDefault(attrs, "castShadow", props.CastShadow); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if props.ReceiveShadow, err = boolAttrDefault(attrs, "receiveShadow", props.ReceiveShadow); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	if transforms, ok, err := floatListAttr(attrs, "transforms"); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	} else if ok {
+		props.Transforms = transforms
+	}
+	if len(props.Transforms)%16 != 0 {
+		return scene.IRNode{}, scene.IRMaterial{}, fmt.Errorf("Scene3D <InstancedMesh> transforms must contain 16 floats per instance")
+	}
+	transformCount := len(props.Transforms) / 16
+	if !countSet && transformCount > 0 {
+		props.Count = transformCount
+	}
+	if props.Count > 0 && transformCount == 0 {
+		props.Transforms = identityTransforms(props.Count)
+		transformCount = props.Count
+	}
+	if transformCount > 0 && transformCount != props.Count {
+		return scene.IRNode{}, scene.IRMaterial{}, fmt.Errorf("Scene3D <InstancedMesh> count=%d but transforms describe %d instances", props.Count, transformCount)
+	}
+	if colors, ok, err := stringListAttr(attrs, "colors"); err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	} else if ok {
+		props.Colors = colors
+	}
+	material, err := lowerMaterial(attrs)
+	if err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	transform, err := lowerTransform(attrs)
+	if err != nil {
+		return scene.IRNode{}, scene.IRMaterial{}, err
+	}
+	node := scene.LowerInstancedMesh(props)
+	node.Transform = transform
+	return node, material, nil
 }
 
 func lowerPoints(attrs []nir.Attr) (scene.IRNode, error) {
@@ -397,6 +460,33 @@ func lowerPoints(attrs []nir.Attr) (scene.IRNode, error) {
 		return scene.IRNode{}, err
 	}
 	return scene.LowerPoints(props), nil
+}
+
+func lowerMaterial(attrs []nir.Attr) (scene.IRMaterial, error) {
+	material := scene.IRMaterial{Kind: "standard"}
+	var err error
+	if color, ok, err := stringAttr(attrs, "color"); err != nil {
+		return scene.IRMaterial{}, err
+	} else if ok {
+		material.Color = color
+	}
+	if materialKind, ok, err := stringAttr(attrs, "material"); err != nil {
+		return scene.IRMaterial{}, err
+	} else if ok {
+		material.Kind = materialKind
+	}
+	if materialKind, ok, err := stringAttr(attrs, "materialKind"); err != nil {
+		return scene.IRMaterial{}, err
+	} else if ok {
+		material.Kind = materialKind
+	}
+	if material.Roughness, err = floatAttrDefault(attrs, "roughness", material.Roughness); err != nil {
+		return scene.IRMaterial{}, err
+	}
+	if material.Metalness, err = floatAttrDefault(attrs, "metalness", material.Metalness); err != nil {
+		return scene.IRMaterial{}, err
+	}
+	return material, nil
 }
 
 func lowerTransform(attrs []nir.Attr) (scene.IRTransform, error) {
@@ -549,6 +639,64 @@ func boolAttr(attrs []nir.Attr, name string) (bool, bool, error) {
 		return false, false, fmt.Errorf("Scene3D conformance attribute %q must be bool: %w", name, err)
 	}
 	return value, true, nil
+}
+
+func floatListAttr(attrs []nir.Attr, name string) ([]float64, bool, error) {
+	raw, ok, err := stringAttr(attrs, name)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	fields := listFields(raw)
+	values := make([]float64, 0, len(fields))
+	for _, field := range fields {
+		value, err := strconv.ParseFloat(field, 64)
+		if err != nil {
+			return nil, false, fmt.Errorf("Scene3D conformance attribute %q must be a numeric list: %w", name, err)
+		}
+		values = append(values, value)
+	}
+	return values, true, nil
+}
+
+func stringListAttr(attrs []nir.Attr, name string) ([]string, bool, error) {
+	raw, ok, err := stringAttr(attrs, name)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	fields := listFields(raw)
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field != "" {
+			values = append(values, field)
+		}
+	}
+	return values, true, nil
+}
+
+func listFields(raw string) []string {
+	return strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ' ', '\n', '\r', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func identityTransforms(count int) []float64 {
+	if count <= 0 {
+		return nil
+	}
+	values := make([]float64, count*16)
+	for i := 0; i < count; i++ {
+		offset := i * 16
+		values[offset] = 1
+		values[offset+5] = 1
+		values[offset+10] = 1
+		values[offset+15] = 1
+	}
+	return values
 }
 
 func attr(attrs []nir.Attr, name string) (nir.RxExpr, bool) {
