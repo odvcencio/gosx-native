@@ -7,7 +7,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: gsxnative <init|compile|emit|check|build|scene-conform> ...")
+		fmt.Fprintln(os.Stderr, "usage: gsxnative <init|compile|emit|check|build|dev|scene-conform> ...")
 		os.Exit(2)
 	}
 	var err error
@@ -22,6 +22,8 @@ func main() {
 		err = runCheck(os.Args[2:])
 	case "build":
 		err = runBuild(os.Args[2:])
+	case "dev":
+		err = runDev(os.Args[2:])
 	case "scene-conform":
 		err = runSceneConform(os.Args[2:])
 	default:
