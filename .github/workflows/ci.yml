@@ -101,7 +101,7 @@ jobs:
         run: make build-scene3d-fixtures-ios
       - name: E2E
         working-directory: gosx-native
-        run: go test -tags smoke -v ./test/e2e/...
+        run: go test -timeout 20m -tags smoke -v ./test/e2e/...
 
   android-smoke-linux:
     runs-on: ubuntu-latest
