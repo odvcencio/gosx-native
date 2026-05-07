@@ -67,6 +67,7 @@ type buildOptions struct {
 	schemeSet        bool
 	simulatorSet     bool
 	release          bool
+	codegenOnly      bool
 	gradleTasks      stringList
 	gradleProperties stringList
 	projectConfig    *projectConfig
@@ -173,6 +174,7 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.scheme, "scheme", "", "Xcode scheme for iOS builds")
 	fs.StringVar(&opts.simulator, "simulator", "", "iOS Simulator name")
 	fs.BoolVar(&opts.release, "release", false, "build the release app variant when the target supports it")
+	fs.BoolVar(&opts.codegenOnly, "codegen-only", false, "regenerate native sources without invoking Xcode or Gradle")
 	fs.Var(&opts.gradleTasks, "task", "Gradle task to run; repeatable")
 	fs.Var(&opts.gradleProperties, "gradle-property", "Gradle project property without the -P prefix; repeatable")
 	if err := fs.Parse(args); err != nil {
@@ -362,6 +364,9 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 			return err
 		}
 	}
+	if cfg.codegenOnly {
+		return nil
+	}
 	switch tgt {
 	case target.Android:
 		return buildAndroid(ctx, cfg)
@@ -381,6 +386,7 @@ type nativeBuild struct {
 	scheme           string
 	simulator        string
 	release          bool
+	codegenOnly      bool
 	gradleTasks      []string
 	gradleProperties []string
 	projectConfig    *projectConfig
@@ -393,6 +399,7 @@ func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativ
 		scheme:           firstNonEmpty(opts.scheme, "CounterDemo"),
 		simulator:        firstNonEmpty(opts.simulator, defaultSimulatorName()),
 		release:          opts.release,
+		codegenOnly:      opts.codegenOnly,
 		gradleTasks:      append([]string(nil), opts.gradleTasks...),
 		gradleProperties: append([]string(nil), opts.gradleProperties...),
 		projectConfig:    opts.projectConfig,

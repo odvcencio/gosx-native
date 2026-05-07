@@ -115,6 +115,35 @@ func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	}
 }
 
+func TestBuildCodegenOnlySkipsNativeTools(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", t.TempDir(),
+		"--codegen-only",
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read generated Kotlin: %v", err)
+	}
+	if !strings.Contains(string(data), "fun Counter(props: CounterProps)") {
+		t.Fatalf("expected generated Counter composable, got:\n%s", data)
+	}
+	if len(fake.commands) != 0 {
+		t.Fatalf("expected no native commands in codegen-only mode, got %#v", fake.commands)
+	}
+}
+
 func TestBuildAndroidScene3DRegeneratesSourceAndRunsGradle(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
