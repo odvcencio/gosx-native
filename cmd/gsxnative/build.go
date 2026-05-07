@@ -64,8 +64,13 @@ type buildOptions struct {
 	xcodeProject     string
 	scheme           string
 	simulator        string
+	configuration    string
+	archivePath      string
+	exportOptions    string
+	exportPath       string
 	schemeSet        bool
 	simulatorSet     bool
+	configurationSet bool
 	release          bool
 	codegenOnly      bool
 	gradleTasks      stringList
@@ -94,6 +99,10 @@ type projectTargetConfig struct {
 	XcodeProject     string   `json:"xcode_project,omitempty"`
 	Scheme           string   `json:"scheme,omitempty"`
 	Simulator        string   `json:"simulator,omitempty"`
+	Configuration    string   `json:"configuration,omitempty"`
+	ArchivePath      string   `json:"archive_path,omitempty"`
+	ExportOptions    string   `json:"export_options_plist,omitempty"`
+	ExportPath       string   `json:"export_path,omitempty"`
 	GradleTasks      []string `json:"gradle_tasks,omitempty"`
 	GradleProperties []string `json:"gradle_properties,omitempty"`
 }
@@ -184,8 +193,9 @@ func runBuildWithContext(ctx context.Context, args []string) error {
 
 func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	opts := buildOptions{
-		schemeSet:    flagWasProvided(args, "scheme"),
-		simulatorSet: flagWasProvided(args, "simulator"),
+		schemeSet:        flagWasProvided(args, "scheme"),
+		simulatorSet:     flagWasProvided(args, "simulator"),
+		configurationSet: flagWasProvided(args, "configuration"),
 	}
 	fs := flag.NewFlagSet("gsxnative build "+targetName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -200,6 +210,10 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.xcodeProject, "xcode-project", "", "Xcode project name without .xcodeproj")
 	fs.StringVar(&opts.scheme, "scheme", "", "Xcode scheme for iOS builds")
 	fs.StringVar(&opts.simulator, "simulator", "", "iOS Simulator name")
+	fs.StringVar(&opts.configuration, "configuration", "", "Xcode configuration for iOS builds")
+	fs.StringVar(&opts.archivePath, "archive-path", "", "iOS archive path for release builds")
+	fs.StringVar(&opts.exportOptions, "export-options-plist", "", "ExportOptions.plist for iOS release export")
+	fs.StringVar(&opts.exportPath, "export-path", "", "iOS export directory for release builds")
 	fs.BoolVar(&opts.release, "release", false, "build the release app variant when the target supports it")
 	fs.BoolVar(&opts.codegenOnly, "codegen-only", false, "regenerate native sources without invoking Xcode or Gradle")
 	fs.Var(&opts.gradleTasks, "task", "Gradle task to run; repeatable")
@@ -272,6 +286,18 @@ func applyIOSTargetConfig(opts *buildOptions, cfg projectTargetConfig, baseDir s
 	}
 	if !opts.simulatorSet && cfg.Simulator != "" {
 		opts.simulator = cfg.Simulator
+	}
+	if !opts.configurationSet && cfg.Configuration != "" {
+		opts.configuration = cfg.Configuration
+	}
+	if opts.archivePath == "" && cfg.ArchivePath != "" {
+		opts.archivePath = resolveConfigPath(baseDir, cfg.ArchivePath)
+	}
+	if opts.exportOptions == "" && cfg.ExportOptions != "" {
+		opts.exportOptions = resolveConfigPath(baseDir, cfg.ExportOptions)
+	}
+	if opts.exportPath == "" && cfg.ExportPath != "" {
+		opts.exportPath = resolveConfigPath(baseDir, cfg.ExportPath)
 	}
 }
 
@@ -412,6 +438,10 @@ type nativeBuild struct {
 	xcodeProject     string
 	scheme           string
 	simulator        string
+	configuration    string
+	archivePath      string
+	exportOptions    string
+	exportPath       string
 	release          bool
 	codegenOnly      bool
 	gradleTasks      []string
@@ -424,7 +454,11 @@ func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativ
 		source:           firstNonEmpty(opts.source, repoDefault(root, "testdata/corpus/swift/counter.swift.gsx")),
 		xcodeProject:     firstNonEmpty(opts.xcodeProject, "CounterDemo"),
 		scheme:           firstNonEmpty(opts.scheme, "CounterDemo"),
-		simulator:        firstNonEmpty(opts.simulator, defaultSimulatorName()),
+		simulator:        firstNonEmpty(opts.simulator, defaultIOSDestination(opts.release)),
+		configuration:    firstNonEmpty(opts.configuration, defaultIOSConfiguration(opts.release)),
+		archivePath:      opts.archivePath,
+		exportOptions:    opts.exportOptions,
+		exportPath:       opts.exportPath,
 		release:          opts.release,
 		codegenOnly:      opts.codegenOnly,
 		gradleTasks:      append([]string(nil), opts.gradleTasks...),
@@ -500,14 +534,37 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	}
 	defer os.RemoveAll(derivedData)
 	action := "build"
+	archivePath := cfg.archivePath
+	if cfg.release {
+		action = "archive"
+		archivePath = firstNonEmpty(archivePath, filepath.Join(cfg.project, "build", cfg.scheme+".xcarchive"))
+	}
 	args := []string{
 		"-project", filepath.Join(cfg.project, cfg.xcodeProject+".xcodeproj"),
 		"-scheme", cfg.scheme,
 		"-destination", iosBuildDestination(cfg.simulator),
 		"-derivedDataPath", derivedData,
-		action,
 	}
-	return buildRunner.Run(ctx, cfg.project, "xcodebuild", args...)
+	if cfg.configuration != "" {
+		args = append(args, "-configuration", cfg.configuration)
+	}
+	if archivePath != "" {
+		args = append(args, "-archivePath", archivePath)
+	}
+	args = append(args, action)
+	if err := buildRunner.Run(ctx, cfg.project, "xcodebuild", args...); err != nil {
+		return err
+	}
+	if !cfg.release || cfg.exportOptions == "" {
+		return nil
+	}
+	exportPath := firstNonEmpty(cfg.exportPath, filepath.Join(cfg.project, "build", "export"))
+	return buildRunner.Run(ctx, cfg.project, "xcodebuild",
+		"-exportArchive",
+		"-archivePath", archivePath,
+		"-exportOptionsPlist", cfg.exportOptions,
+		"-exportPath", exportPath,
+	)
 }
 
 func gradleExecutable(project string) string {
@@ -544,6 +601,20 @@ func defaultSimulatorName() string {
 		return name
 	}
 	return "generic/platform=iOS Simulator"
+}
+
+func defaultIOSDestination(release bool) string {
+	if release {
+		return "generic/platform=iOS"
+	}
+	return defaultSimulatorName()
+}
+
+func defaultIOSConfiguration(release bool) string {
+	if release {
+		return "Release"
+	}
+	return ""
 }
 
 func iosBuildDestination(simulator string) string {

@@ -115,6 +115,50 @@ func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	}
 }
 
+func TestBuildIOSReleaseArchivesAndExports(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.swift")
+	archivePath := filepath.Join(project, "build", "CounterDemo.xcarchive")
+	exportOptions := filepath.Join(project, "ExportOptions.plist")
+	exportPath := filepath.Join(project, "build", "exported")
+	err = runBuild([]string{
+		"ios",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--scheme", "CounterDemo",
+		"--release",
+		"--archive-path", archivePath,
+		"--export-options-plist", exportOptions,
+		"--export-path", exportPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 3 {
+		t.Fatalf("expected xcodegen, archive, and export commands, got %#v", fake.commands)
+	}
+	archiveArgs := strings.Join(fake.commands[1].args, " ")
+	if !strings.Contains(archiveArgs, "-configuration Release") ||
+		!strings.Contains(archiveArgs, "-destination generic/platform=iOS") ||
+		!strings.Contains(archiveArgs, "-archivePath "+archivePath) ||
+		!strings.Contains(archiveArgs, " archive") {
+		t.Fatalf("unexpected archive args: %q", archiveArgs)
+	}
+	exportArgs := strings.Join(fake.commands[2].args, " ")
+	if !strings.Contains(exportArgs, "-exportArchive") ||
+		!strings.Contains(exportArgs, "-archivePath "+archivePath) ||
+		!strings.Contains(exportArgs, "-exportOptionsPlist "+exportOptions) ||
+		!strings.Contains(exportArgs, "-exportPath "+exportPath) {
+		t.Fatalf("unexpected export args: %q", exportArgs)
+	}
+}
+
 func TestIOSBuildDestinationDefaultsToGenericSimulator(t *testing.T) {
 	t.Setenv("IOS_SIMULATOR_DESTINATION", "")
 	t.Setenv("IOS_SIMULATOR_NAME", "")
@@ -130,6 +174,12 @@ func TestIOSBuildDestinationDefaultsToGenericSimulator(t *testing.T) {
 	}
 	if got := iosBuildDestination("platform=iOS Simulator,name=Any iOS Simulator Device"); got != "platform=iOS Simulator,name=Any iOS Simulator Device" {
 		t.Fatalf("unexpected explicit destination: %q", got)
+	}
+	if got := defaultIOSDestination(true); got != "generic/platform=iOS" {
+		t.Fatalf("unexpected release destination: %q", got)
+	}
+	if got := defaultIOSConfiguration(true); got != "Release" {
+		t.Fatalf("unexpected release configuration: %q", got)
 	}
 }
 
