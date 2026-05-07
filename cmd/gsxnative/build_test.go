@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,52 @@ func TestBuildAndroidRegeneratesSourceAndRunsGradle(t *testing.T) {
 	joinedArgs := strings.Join(fake.commands[0].args, " ")
 	if !strings.Contains(joinedArgs, ":gsx-nativekit:assembleRelease") || !strings.Contains(joinedArgs, ":app:assembleDebug") {
 		t.Fatalf("expected runtime/app assemble tasks, got %q", joinedArgs)
+	}
+}
+
+func TestBuildAndroidWritesArtifactManifest(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--release",
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	if manifest.Version != 1 || len(manifest.Targets) != 1 {
+		t.Fatalf("unexpected artifact manifest: %#v", manifest)
+	}
+	target := manifest.Targets[0]
+	if target.Target != "android" || !target.Release || target.GeneratedOutput != output {
+		t.Fatalf("unexpected android target manifest: %#v", target)
+	}
+	if !containsString(target.BuildTasks, ":app:assembleRelease") {
+		t.Fatalf("expected release task in manifest: %#v", target.BuildTasks)
+	}
+	if !containsArtifact(target.ExpectedArtifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk/release/app-release.apk")) {
+		t.Fatalf("expected release APK artifact in manifest: %#v", target.ExpectedArtifacts)
 	}
 }
 
@@ -296,4 +343,22 @@ func TestBuildInvalidScene3DStopsBeforeNativeTools(t *testing.T) {
 	if _, err := os.Stat(output); !os.IsNotExist(err) {
 		t.Fatalf("expected no generated output, stat err: %v", err)
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArtifact(artifacts []expectedArtifact, kind, path string) bool {
+	for _, artifact := range artifacts {
+		if artifact.Kind == kind && artifact.Path == path {
+			return true
+		}
+	}
+	return false
 }

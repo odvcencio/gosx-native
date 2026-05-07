@@ -68,6 +68,7 @@ type buildOptions struct {
 	archivePath      string
 	exportOptions    string
 	exportPath       string
+	artifactManifest string
 	schemeSet        bool
 	simulatorSet     bool
 	configurationSet bool
@@ -80,16 +81,17 @@ type buildOptions struct {
 }
 
 type projectConfig struct {
-	Name         string                  `json:"name"`
-	Module       string                  `json:"module"`
-	Source       string                  `json:"source"`
-	IOS          projectTargetConfig     `json:"ios"`
-	Android      projectTargetConfig     `json:"android"`
-	Routes       []routeDeclaration      `json:"routes,omitempty"`
-	DataLoaders  []endpointDeclaration   `json:"data_loaders,omitempty"`
-	Actions      []endpointDeclaration   `json:"actions,omitempty"`
-	Capabilities []capabilityDeclaration `json:"capabilities,omitempty"`
-	Bridges      []bridgeDeclaration     `json:"bridges,omitempty"`
+	Name             string                  `json:"name"`
+	Module           string                  `json:"module"`
+	Source           string                  `json:"source"`
+	IOS              projectTargetConfig     `json:"ios"`
+	Android          projectTargetConfig     `json:"android"`
+	ArtifactManifest string                  `json:"artifact_manifest,omitempty"`
+	Routes           []routeDeclaration      `json:"routes,omitempty"`
+	DataLoaders      []endpointDeclaration   `json:"data_loaders,omitempty"`
+	Actions          []endpointDeclaration   `json:"actions,omitempty"`
+	Capabilities     []capabilityDeclaration `json:"capabilities,omitempty"`
+	Bridges          []bridgeDeclaration     `json:"bridges,omitempty"`
 }
 
 type projectTargetConfig struct {
@@ -178,17 +180,30 @@ func runBuildWithContext(ctx context.Context, args []string) error {
 	}
 	switch targetName {
 	case "android":
-		return buildNativeTarget(ctx, root, target.Android, opts)
+		result, err := buildNativeTarget(ctx, root, target.Android, opts)
+		if err != nil {
+			return err
+		}
+		return writeBuildArtifactManifest(opts, []nativeBuildResult{result})
 	case "ios":
-		return buildNativeTarget(ctx, root, target.IOS, opts)
+		result, err := buildNativeTarget(ctx, root, target.IOS, opts)
+		if err != nil {
+			return err
+		}
+		return writeBuildArtifactManifest(opts, []nativeBuildResult{result})
 	case "all":
 		if opts.project != "" || opts.output != "" {
 			return fmt.Errorf("build all does not accept --project or --output; use --ios-project/--android-project and --ios-output/--android-output")
 		}
-		if err := buildNativeTarget(ctx, root, target.IOS, opts); err != nil {
+		iosResult, err := buildNativeTarget(ctx, root, target.IOS, opts)
+		if err != nil {
 			return err
 		}
-		return buildNativeTarget(ctx, root, target.Android, opts)
+		androidResult, err := buildNativeTarget(ctx, root, target.Android, opts)
+		if err != nil {
+			return err
+		}
+		return writeBuildArtifactManifest(opts, []nativeBuildResult{iosResult, androidResult})
 	default:
 		return fmt.Errorf("unknown build target: %s (supported: ios, android, all)", args[0])
 	}
@@ -217,6 +232,7 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.archivePath, "archive-path", "", "iOS archive path for release builds")
 	fs.StringVar(&opts.exportOptions, "export-options-plist", "", "ExportOptions.plist for iOS release export")
 	fs.StringVar(&opts.exportPath, "export-path", "", "iOS export directory for release builds")
+	fs.StringVar(&opts.artifactManifest, "artifact-manifest", "", "write a JSON manifest describing generated and native build artifacts")
 	fs.BoolVar(&opts.release, "release", false, "build the release app variant when the target supports it")
 	fs.BoolVar(&opts.codegenOnly, "codegen-only", false, "regenerate native sources without invoking Xcode or Gradle")
 	fs.Var(&opts.gradleTasks, "task", "Gradle task to run; repeatable")
@@ -264,6 +280,9 @@ func applyBuildProjectConfig(opts *buildOptions, targetName string) error {
 	opts.projectBaseDir = baseDir
 	if opts.source == "" && cfg.Source != "" {
 		opts.source = resolveConfigPath(baseDir, cfg.Source)
+	}
+	if opts.artifactManifest == "" && cfg.ArtifactManifest != "" {
+		opts.artifactManifest = resolveConfigPath(baseDir, cfg.ArtifactManifest)
 	}
 	if targetName == "ios" || targetName == "all" {
 		applyIOSTargetConfig(opts, cfg.IOS, baseDir)
@@ -379,57 +398,58 @@ func flagWasProvided(args []string, name string) bool {
 	return false
 }
 
-func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts buildOptions) error {
+func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts buildOptions) (nativeBuildResult, error) {
 	cfg, err := nativeBuildConfig(root, tgt, opts)
 	if err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	mod, err := compileFile(cfg.source)
 	if err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	if err := target.Validate(mod, tgt); err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	projectConfig, err := effectiveProjectConfigForSource(opts.projectConfig, cfg.source)
 	if err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	if err := validateProjectDeclarations(projectConfig, mod); err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	source, err := emitNativeSource(tgt, mod)
 	if err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.output), 0755); err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	if err := os.WriteFile(cfg.output, source, 0644); err != nil {
-		return err
+		return nativeBuildResult{}, err
 	}
 	if cfg.supportOutput != "" && projectConfig != nil {
 		support, err := emitDeclarationSupport(tgt, projectConfig)
 		if err != nil {
-			return err
+			return nativeBuildResult{}, err
 		}
 		if err := os.MkdirAll(filepath.Dir(cfg.supportOutput), 0755); err != nil {
-			return err
+			return nativeBuildResult{}, err
 		}
 		if err := os.WriteFile(cfg.supportOutput, support, 0644); err != nil {
-			return err
+			return nativeBuildResult{}, err
 		}
 	}
+	result := nativeBuildResultFor(tgt, cfg)
 	if cfg.codegenOnly {
-		return nil
+		return result, nil
 	}
 	switch tgt {
 	case target.Android:
-		return buildAndroid(ctx, cfg)
+		return result, buildAndroid(ctx, cfg)
 	case target.IOS:
-		return buildIOS(ctx, cfg)
+		return result, buildIOS(ctx, cfg)
 	default:
-		return fmt.Errorf("unknown target: %s", tgt)
+		return nativeBuildResult{}, fmt.Errorf("unknown target: %s", tgt)
 	}
 }
 
@@ -450,6 +470,35 @@ type nativeBuild struct {
 	gradleTasks      []string
 	gradleProperties []string
 	projectConfig    *projectConfig
+}
+
+type buildArtifactManifest struct {
+	Version int                 `json:"version"`
+	Name    string              `json:"name,omitempty"`
+	Module  string              `json:"module,omitempty"`
+	Targets []nativeBuildResult `json:"targets"`
+}
+
+type nativeBuildResult struct {
+	Target            string             `json:"target"`
+	Source            string             `json:"source"`
+	Project           string             `json:"project"`
+	GeneratedOutput   string             `json:"generated_output"`
+	SupportOutput     string             `json:"support_output,omitempty"`
+	Release           bool               `json:"release"`
+	CodegenOnly       bool               `json:"codegen_only,omitempty"`
+	BuildSystem       string             `json:"build_system,omitempty"`
+	BuildTasks        []string           `json:"build_tasks,omitempty"`
+	BuildProperties   []string           `json:"build_properties,omitempty"`
+	Configuration     string             `json:"configuration,omitempty"`
+	ArchivePath       string             `json:"archive_path,omitempty"`
+	ExportPath        string             `json:"export_path,omitempty"`
+	ExpectedArtifacts []expectedArtifact `json:"expected_artifacts,omitempty"`
+}
+
+type expectedArtifact struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
 }
 
 func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativeBuild, error) {
@@ -511,7 +560,70 @@ func emitNativeSource(tgt target.Target, mod *nir.Module) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func nativeBuildResultFor(tgt target.Target, cfg nativeBuild) nativeBuildResult {
+	result := nativeBuildResult{
+		Target:          string(tgt),
+		Source:          cfg.source,
+		Project:         cfg.project,
+		GeneratedOutput: cfg.output,
+		SupportOutput:   cfg.supportOutput,
+		Release:         cfg.release,
+		CodegenOnly:     cfg.codegenOnly,
+	}
+	switch tgt {
+	case target.Android:
+		tasks := androidBuildTasks(cfg)
+		result.BuildSystem = gradleExecutable(cfg.project)
+		result.BuildTasks = tasks
+		result.BuildProperties = append([]string(nil), cfg.gradleProperties...)
+		if !cfg.codegenOnly {
+			result.ExpectedArtifacts = androidExpectedArtifacts(cfg.project, tasks)
+		}
+	case target.IOS:
+		result.BuildSystem = "xcodebuild"
+		result.Configuration = cfg.configuration
+		if cfg.release {
+			result.ArchivePath = iosArchivePath(cfg)
+			if cfg.exportOptions != "" {
+				result.ExportPath = iosExportPath(cfg)
+			}
+		}
+		if !cfg.codegenOnly {
+			result.ExpectedArtifacts = iosExpectedArtifacts(cfg)
+		}
+	}
+	return result
+}
+
+func writeBuildArtifactManifest(opts buildOptions, results []nativeBuildResult) error {
+	if opts.artifactManifest == "" {
+		return nil
+	}
+	manifest := buildArtifactManifest{
+		Version: 1,
+		Targets: results,
+	}
+	if opts.projectConfig != nil {
+		manifest.Name = opts.projectConfig.Name
+		manifest.Module = opts.projectConfig.Module
+	}
+	if err := os.MkdirAll(filepath.Dir(opts.artifactManifest), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(opts.artifactManifest, append(data, '\n'), 0644)
+}
+
 func buildAndroid(ctx context.Context, cfg nativeBuild) error {
+	tasks := androidBuildTasks(cfg)
+	args := androidBuildArgs(cfg, tasks)
+	return buildRunner.Run(ctx, cfg.project, gradleExecutable(cfg.project), args...)
+}
+
+func androidBuildTasks(cfg nativeBuild) []string {
 	tasks := cfg.gradleTasks
 	if len(tasks) == 0 {
 		tasks = []string{":gsx-nativekit:assembleRelease", ":app:assembleDebug"}
@@ -519,12 +631,34 @@ func buildAndroid(ctx context.Context, cfg nativeBuild) error {
 			tasks = []string{":gsx-nativekit:assembleRelease", ":app:assembleRelease"}
 		}
 	}
+	return append([]string(nil), tasks...)
+}
+
+func androidBuildArgs(cfg nativeBuild, tasks []string) []string {
 	args := []string{"--no-daemon"}
 	for _, property := range cfg.gradleProperties {
 		args = append(args, "-P"+property)
 	}
 	args = append(args, tasks...)
-	return buildRunner.Run(ctx, cfg.project, gradleExecutable(cfg.project), args...)
+	return args
+}
+
+func androidExpectedArtifacts(project string, tasks []string) []expectedArtifact {
+	var artifacts []expectedArtifact
+	for _, task := range tasks {
+		if strings.Contains(task, ":") && !strings.Contains(task, ":app:") && !strings.HasPrefix(task, "app:") {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(task, "assembleDebug"):
+			artifacts = appendArtifact(artifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk/debug/app-debug.apk"))
+		case strings.HasSuffix(task, "assembleRelease"):
+			artifacts = appendArtifact(artifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk/release/app-release.apk"))
+		case strings.HasSuffix(task, "bundleRelease"):
+			artifacts = appendArtifact(artifacts, "android_aab", filepath.Join(project, "app/build/outputs/bundle/release/app-release.aab"))
+		}
+	}
+	return artifacts
 }
 
 func buildIOS(ctx context.Context, cfg nativeBuild) error {
@@ -537,10 +671,9 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	}
 	defer os.RemoveAll(derivedData)
 	action := "build"
-	archivePath := cfg.archivePath
+	archivePath := iosArchivePath(cfg)
 	if cfg.release {
 		action = "archive"
-		archivePath = firstNonEmpty(archivePath, filepath.Join(cfg.project, "build", cfg.scheme+".xcarchive"))
 	}
 	args := []string{
 		"-project", filepath.Join(cfg.project, cfg.xcodeProject+".xcodeproj"),
@@ -561,13 +694,43 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	if !cfg.release || cfg.exportOptions == "" {
 		return nil
 	}
-	exportPath := firstNonEmpty(cfg.exportPath, filepath.Join(cfg.project, "build", "export"))
 	return buildRunner.Run(ctx, cfg.project, "xcodebuild",
 		"-exportArchive",
 		"-archivePath", archivePath,
 		"-exportOptionsPlist", cfg.exportOptions,
-		"-exportPath", exportPath,
+		"-exportPath", iosExportPath(cfg),
 	)
+}
+
+func iosArchivePath(cfg nativeBuild) string {
+	if !cfg.release {
+		return cfg.archivePath
+	}
+	return firstNonEmpty(cfg.archivePath, filepath.Join(cfg.project, "build", cfg.scheme+".xcarchive"))
+}
+
+func iosExportPath(cfg nativeBuild) string {
+	return firstNonEmpty(cfg.exportPath, filepath.Join(cfg.project, "build", "export"))
+}
+
+func iosExpectedArtifacts(cfg nativeBuild) []expectedArtifact {
+	if !cfg.release {
+		return nil
+	}
+	artifacts := []expectedArtifact{{Kind: "ios_archive", Path: iosArchivePath(cfg)}}
+	if cfg.exportOptions != "" {
+		artifacts = append(artifacts, expectedArtifact{Kind: "ios_export", Path: iosExportPath(cfg)})
+	}
+	return artifacts
+}
+
+func appendArtifact(artifacts []expectedArtifact, kind, path string) []expectedArtifact {
+	for _, artifact := range artifacts {
+		if artifact.Kind == kind && artifact.Path == path {
+			return artifacts
+		}
+	}
+	return append(artifacts, expectedArtifact{Kind: kind, Path: path})
 }
 
 func gradleExecutable(project string) string {

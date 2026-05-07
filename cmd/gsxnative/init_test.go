@@ -21,6 +21,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:data name=loadGreeting method=GET path=/api/greeting output=message:string ttl=30s retry=2 backoff=250ms max_backoff=2s auth=optional network=cache_when_offline")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:capability name=network targets=ios,android required=true")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:bridge service=Vault method=echo path=/api/bridge/Vault.echo input=message:string output=message:string auth=required retry=2")
+	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative build all --release --artifact-manifest build/gsxnative-artifacts.json")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "GSXRouter(initial: GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "NativeObservability.install()")
