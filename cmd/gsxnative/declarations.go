@@ -17,9 +17,11 @@ import (
 )
 
 type sourceDeclarations struct {
-	Routes      []routeDeclaration
-	DataLoaders []endpointDeclaration
-	Actions     []endpointDeclaration
+	Routes       []routeDeclaration
+	DataLoaders  []endpointDeclaration
+	Actions      []endpointDeclaration
+	Capabilities []capabilityDeclaration
+	Bridges      []bridgeDeclaration
 }
 
 func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
@@ -60,6 +62,12 @@ func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
 	if err := validateEndpoints("action", cfg.Actions); err != nil {
 		return err
 	}
+	if err := validateCapabilities(cfg.Capabilities); err != nil {
+		return err
+	}
+	if err := validateBridges(cfg.Bridges); err != nil {
+		return err
+	}
 	return validateActionInvalidates(cfg)
 }
 
@@ -81,6 +89,12 @@ func effectiveProjectConfigForSource(cfg *projectConfig, sourcePath string) (*pr
 	if sourceDecls.hasActions() {
 		effective.Actions = sourceDecls.Actions
 	}
+	if sourceDecls.hasCapabilities() {
+		effective.Capabilities = sourceDecls.Capabilities
+	}
+	if sourceDecls.hasBridges() {
+		effective.Bridges = sourceDecls.Bridges
+	}
 	return effective, nil
 }
 
@@ -92,11 +106,13 @@ func cloneProjectConfig(cfg *projectConfig) *projectConfig {
 	clone.Routes = append([]routeDeclaration(nil), cfg.Routes...)
 	clone.DataLoaders = append([]endpointDeclaration(nil), cfg.DataLoaders...)
 	clone.Actions = append([]endpointDeclaration(nil), cfg.Actions...)
+	clone.Capabilities = append([]capabilityDeclaration(nil), cfg.Capabilities...)
+	clone.Bridges = append([]bridgeDeclaration(nil), cfg.Bridges...)
 	return &clone
 }
 
 func (d sourceDeclarations) hasAny() bool {
-	return d.hasRoutes() || d.hasDataLoaders() || d.hasActions()
+	return d.hasRoutes() || d.hasDataLoaders() || d.hasActions() || d.hasCapabilities() || d.hasBridges()
 }
 
 func (d sourceDeclarations) hasRoutes() bool {
@@ -109,6 +125,14 @@ func (d sourceDeclarations) hasDataLoaders() bool {
 
 func (d sourceDeclarations) hasActions() bool {
 	return len(d.Actions) > 0
+}
+
+func (d sourceDeclarations) hasCapabilities() bool {
+	return len(d.Capabilities) > 0
+}
+
+func (d sourceDeclarations) hasBridges() bool {
+	return len(d.Bridges) > 0
 }
 
 func parseSourceDeclarationsFile(path string) (sourceDeclarations, error) {
@@ -156,6 +180,18 @@ func parseSourceDeclarations(src []byte) (sourceDeclarations, error) {
 				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
 			}
 			decls.Actions = append(decls.Actions, endpoint)
+		case "capability":
+			capability, err := sourceCapabilityDeclaration(fields)
+			if err != nil {
+				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			decls.Capabilities = append(decls.Capabilities, capability)
+		case "bridge":
+			bridge, err := sourceBridgeDeclaration(fields)
+			if err != nil {
+				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			decls.Bridges = append(decls.Bridges, bridge)
 		default:
 			continue
 		}
@@ -173,7 +209,7 @@ func parseSourceDeclaration(line string) (string, map[string][]string, error) {
 		return "", nil, fmt.Errorf("empty gosx declaration")
 	}
 	kind := strings.ToLower(pieces[0])
-	if kind != "route" && kind != "data" && kind != "action" {
+	if kind != "route" && kind != "data" && kind != "action" && kind != "capability" && kind != "bridge" {
 		return kind, nil, nil
 	}
 	fields := make(map[string][]string, len(pieces)-1)
@@ -262,6 +298,64 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 	}, nil
 }
 
+func sourceCapabilityDeclaration(fields map[string][]string) (capabilityDeclaration, error) {
+	if err := requireDeclarationFields("capability", fields, "name"); err != nil {
+		return capabilityDeclaration{}, err
+	}
+	if err := rejectUnknownDeclarationFields("capability", fields, "name", "target", "targets", "required"); err != nil {
+		return capabilityDeclaration{}, err
+	}
+	required, err := parseSourceBool(firstField(fields, "required"))
+	if err != nil {
+		return capabilityDeclaration{}, err
+	}
+	return capabilityDeclaration{
+		Name:     firstField(fields, "name"),
+		Targets:  parseCapabilityTargets(append(fields["targets"], fields["target"]...)),
+		Required: required,
+	}, nil
+}
+
+func sourceBridgeDeclaration(fields map[string][]string) (bridgeDeclaration, error) {
+	if err := requireDeclarationFields("bridge", fields, "service", "method", "path"); err != nil {
+		return bridgeDeclaration{}, err
+	}
+	if err := rejectUnknownDeclarationFields("bridge", fields,
+		"service", "method", "path",
+		"input", "request", "body",
+		"output", "response", "returns",
+		"auth",
+		"retry", "retries", "retry_attempts",
+	); err != nil {
+		return bridgeDeclaration{}, err
+	}
+	input, err := parseSourceParams(append(append(fields["input"], fields["request"]...), fields["body"]...))
+	if err != nil {
+		return bridgeDeclaration{}, err
+	}
+	output, err := parseSourceParams(append(append(fields["output"], fields["response"]...), fields["returns"]...))
+	if err != nil {
+		return bridgeDeclaration{}, err
+	}
+	retryAttempts, err := parseSourcePositiveInt(firstNonEmptyField(fields, "retry_attempts", "retry", "retries"))
+	if err != nil {
+		return bridgeDeclaration{}, err
+	}
+	auth, err := parseSourceAuth(firstField(fields, "auth"))
+	if err != nil {
+		return bridgeDeclaration{}, err
+	}
+	return bridgeDeclaration{
+		Service:       firstField(fields, "service"),
+		Method:        firstField(fields, "method"),
+		Path:          firstField(fields, "path"),
+		Input:         input,
+		Output:        output,
+		Auth:          auth,
+		RetryAttempts: retryAttempts,
+	}, nil
+}
+
 func requireDeclarationFields(kind string, fields map[string][]string, required ...string) error {
 	for _, name := range required {
 		if firstField(fields, name) == "" {
@@ -338,6 +432,17 @@ func parseSourceList(values []string) []string {
 	return out
 }
 
+func parseCapabilityTargets(values []string) []string {
+	targets := parseSourceList(values)
+	if len(targets) == 0 {
+		return nil
+	}
+	for i, value := range targets {
+		targets[i] = strings.ToLower(strings.TrimSpace(value))
+	}
+	return targets
+}
+
 func parseSourceSeconds(value string) (int, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -369,6 +474,18 @@ func parseSourcePositiveInt(value string) (int, error) {
 		return 0, fmt.Errorf("retry attempts %q must be a non-negative integer", value)
 	}
 	return parsed, nil
+}
+
+func parseSourceBool(value string) (bool, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "false", "no", "0":
+		return false, nil
+	case "true", "yes", "1":
+		return true, nil
+	default:
+		return false, fmt.Errorf("boolean value %q must be true or false", value)
+	}
 }
 
 func parseSourceAuth(value string) (string, error) {
@@ -430,6 +547,67 @@ func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 	return nil
 }
 
+func validateCapabilities(capabilities []capabilityDeclaration) error {
+	seen := make(map[string]bool, len(capabilities))
+	for _, capability := range capabilities {
+		if !identifierPattern.MatchString(capability.Name) {
+			return fmt.Errorf("capability %q has invalid name", capability.Name)
+		}
+		if seen[capability.Name] {
+			return fmt.Errorf("duplicate capability declaration %q", capability.Name)
+		}
+		seen[capability.Name] = true
+		targets := capabilityTargets(capability)
+		targetSeen := make(map[string]bool, len(targets))
+		for _, tgt := range targets {
+			if tgt != "ios" && tgt != "android" {
+				return fmt.Errorf("capability %s has unsupported target %q", capability.Name, tgt)
+			}
+			if targetSeen[tgt] {
+				return fmt.Errorf("capability %s repeats target %q", capability.Name, tgt)
+			}
+			targetSeen[tgt] = true
+		}
+	}
+	return nil
+}
+
+func validateBridges(bridges []bridgeDeclaration) error {
+	seen := make(map[string]bool, len(bridges))
+	for _, bridge := range bridges {
+		if !identifierPattern.MatchString(bridge.Service) {
+			return fmt.Errorf("bridge service %q has invalid name", bridge.Service)
+		}
+		if !identifierPattern.MatchString(bridge.Method) {
+			return fmt.Errorf("bridge %s has invalid method %q", bridge.Service, bridge.Method)
+		}
+		if bridge.Path == "" || !strings.HasPrefix(bridge.Path, "/") {
+			return fmt.Errorf("bridge %s.%s must use an absolute path", bridge.Service, bridge.Method)
+		}
+		name := bridgeName(bridge)
+		if seen[name] {
+			return fmt.Errorf("duplicate bridge declaration %q", name)
+		}
+		seen[name] = true
+		if err := validateEndpointParams("bridge", name, "input field", bridge.Input); err != nil {
+			return err
+		}
+		if err := validateEndpointParams("bridge", name, "output field", bridge.Output); err != nil {
+			return err
+		}
+		if err := validateBridgeMethodParams(bridge); err != nil {
+			return err
+		}
+		if _, err := parseSourceAuth(bridge.Auth); err != nil {
+			return fmt.Errorf("bridge %s has invalid auth policy: %w", name, err)
+		}
+		if bridge.RetryAttempts < 0 {
+			return fmt.Errorf("bridge %s retry attempts must be non-negative", name)
+		}
+	}
+	return nil
+}
+
 func validateEndpointParams(kind, endpointName, label string, params []paramDeclaration) error {
 	seen := make(map[string]bool, len(params))
 	for _, param := range params {
@@ -443,6 +621,17 @@ func validateEndpointParams(kind, endpointName, label string, params []paramDecl
 			return fmt.Errorf("%s %s has duplicate %s %q", kind, endpointName, label, param.Name)
 		}
 		seen[param.Name] = true
+	}
+	return nil
+}
+
+func validateBridgeMethodParams(bridge bridgeDeclaration) error {
+	seen := make(map[string]bool, len(bridge.Input))
+	for _, input := range bridge.Input {
+		if seen[input.Name] {
+			return fmt.Errorf("bridge %s uses duplicate generated method parameter %q", bridgeName(bridge), input.Name)
+		}
+		seen[input.Name] = true
 	}
 	return nil
 }
@@ -555,9 +744,15 @@ func emitSwiftDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf)
 	emitSwiftEndpointSpecs(&buf, "GSXActions", cfg.Actions, "POST")
 	fmt.Fprintln(&buf)
+	emitSwiftCapabilitySpecs(&buf, cfg.Capabilities)
+	fmt.Fprintln(&buf)
+	emitSwiftBridgeSpecs(&buf, cfg.Bridges)
+	fmt.Fprintln(&buf)
 	emitSwiftEndpointClient(&buf, "GSXGeneratedDataClient", "load", cfg.DataLoaders, "GET")
 	fmt.Fprintln(&buf)
 	emitSwiftEndpointClient(&buf, "GSXGeneratedActionClient", "submit", cfg.Actions, "POST")
+	fmt.Fprintln(&buf)
+	emitSwiftBridgeClient(&buf, cfg.Bridges)
 	return buf.Bytes()
 }
 
@@ -577,6 +772,22 @@ func emitSwiftGeneratedSpecs(buf *bytes.Buffer) {
 	fmt.Fprintln(buf, "    public let cacheTTLSeconds: Int?")
 	fmt.Fprintln(buf, "    public let invalidates: [String]")
 	fmt.Fprintln(buf, "    public let optimistic: String?")
+	fmt.Fprintln(buf, "    public let auth: GSXAuthRequirement")
+	fmt.Fprintln(buf, "    public let retryAttempts: Int?")
+	fmt.Fprintln(buf, "}")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "public struct GSXGeneratedCapabilitySpec: Equatable {")
+	fmt.Fprintln(buf, "    public let name: String")
+	fmt.Fprintln(buf, "    public let targets: [String]")
+	fmt.Fprintln(buf, "    public let required: Bool")
+	fmt.Fprintln(buf, "}")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "public struct GSXGeneratedBridgeSpec: Equatable {")
+	fmt.Fprintln(buf, "    public let service: String")
+	fmt.Fprintln(buf, "    public let method: String")
+	fmt.Fprintln(buf, "    public let path: String")
+	fmt.Fprintln(buf, "    public let input: [GSXGeneratedParamSpec]")
+	fmt.Fprintln(buf, "    public let output: [GSXGeneratedParamSpec]")
 	fmt.Fprintln(buf, "    public let auth: GSXAuthRequirement")
 	fmt.Fprintln(buf, "    public let retryAttempts: Int?")
 	fmt.Fprintln(buf, "}")
@@ -616,6 +827,42 @@ func emitSwiftEndpointSpecs(buf *bytes.Buffer, enumName string, endpoints []endp
 			swiftOptionalString(endpoint.Optimistic),
 			swiftAuthRequirement(endpoint.Auth),
 			swiftOptionalInt(endpoint.RetryAttempts),
+		)
+	}
+	fmt.Fprintln(buf, "    ]")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitSwiftCapabilitySpecs(buf *bytes.Buffer, capabilities []capabilityDeclaration) {
+	fmt.Fprintln(buf, "public enum GSXCapabilities {")
+	fmt.Fprintln(buf, "    public static let specs: [GSXGeneratedCapabilitySpec] = [")
+	for _, capability := range capabilities {
+		fmt.Fprintf(buf, "        GSXGeneratedCapabilitySpec(name: %s, targets: %s, required: %s),\n",
+			strconv.Quote(capability.Name),
+			swiftStringArray(capabilityTargets(capability)),
+			swiftBool(capability.Required),
+		)
+	}
+	fmt.Fprintln(buf, "    ]")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public static let runtimeSpecs: [GSXCapabilitySpec] = specs.map { spec in")
+	fmt.Fprintln(buf, "        GSXCapabilitySpec(name: spec.name, targets: spec.targets, required: spec.required)")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitSwiftBridgeSpecs(buf *bytes.Buffer, bridges []bridgeDeclaration) {
+	fmt.Fprintln(buf, "public enum GSXBridges {")
+	fmt.Fprintln(buf, "    public static let specs: [GSXGeneratedBridgeSpec] = [")
+	for _, bridge := range bridges {
+		fmt.Fprintf(buf, "        GSXGeneratedBridgeSpec(service: %s, method: %s, path: %s, input: %s, output: %s, auth: %s, retryAttempts: %s),\n",
+			strconv.Quote(bridge.Service),
+			strconv.Quote(bridge.Method),
+			strconv.Quote(bridge.Path),
+			swiftParamSpecArray(bridge.Input),
+			swiftParamSpecArray(bridge.Output),
+			swiftAuthRequirement(bridge.Auth),
+			swiftOptionalInt(bridge.RetryAttempts),
 		)
 	}
 	fmt.Fprintln(buf, "    ]")
@@ -715,12 +962,91 @@ func emitSwiftEndpointRequest(buf *bytes.Buffer, className string, endpoint endp
 	fmt.Fprintf(buf, "        let request = GSXRequest(method: %s, path: %s)\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), pathExpr)
 }
 
+func emitSwiftBridgeClient(buf *bytes.Buffer, bridges []bridgeDeclaration) {
+	emitSwiftBridgeModels(buf, bridges)
+	if len(bridges) > 0 {
+		fmt.Fprintln(buf)
+	}
+	fmt.Fprintln(buf, "public final class GSXGeneratedBridgeClient {")
+	fmt.Fprintln(buf, "    private let client: GSXBridgeClient")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public init(client: GSXBridgeClient) {")
+	fmt.Fprintln(buf, "        self.client = client")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(dataClient: GSXDataClient) {")
+	fmt.Fprintln(buf, "        self.init(client: GSXBridgeClient(dataClient: dataClient))")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(transport: any GSXTransport) {")
+	fmt.Fprintln(buf, "        self.init(dataClient: GSXDataClient(transport: transport))")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:]) {")
+	fmt.Fprintln(buf, "        self.init(dataClient: GSXDataClient(baseURL: baseURL, defaultHeaders: defaultHeaders))")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) {")
+	fmt.Fprintln(buf, "        self.init(dataClient: GSXDataClient(baseURL: baseURL, defaultHeaders: defaultHeaders, tokenStore: tokenStore))")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(baseURL: String, defaultHeaders: [String: String] = [:]) throws {")
+	fmt.Fprintln(buf, "        self.init(dataClient: try GSXDataClient(baseURL: baseURL, defaultHeaders: defaultHeaders))")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(baseURL: String, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) throws {")
+	fmt.Fprintln(buf, "        self.init(dataClient: try GSXDataClient(baseURL: baseURL, defaultHeaders: defaultHeaders, tokenStore: tokenStore))")
+	fmt.Fprintln(buf, "    }")
+	for _, bridge := range bridges {
+		fmt.Fprintln(buf)
+		resultType := "GSXResponse"
+		outputModel := swiftBridgeModelName(bridge, "Response")
+		if len(bridge.Output) > 0 {
+			resultType = outputModel
+		}
+		fmt.Fprintf(buf, "    public func %s(%s) async throws -> %s {\n", swiftBridgeMethodName(bridge), swiftParamList(bridge.Input), resultType)
+		emitSwiftBridgeRequest(buf, bridge)
+		fmt.Fprintf(buf, "        let response = try await client.call(request, policy: %s)\n", swiftBridgeRequestPolicy(bridge))
+		if len(bridge.Output) > 0 {
+			fmt.Fprintf(buf, "        return try response.decodedJSON(%s.self)\n", outputModel)
+		} else {
+			fmt.Fprintln(buf, "        return response")
+		}
+		fmt.Fprintln(buf, "    }")
+	}
+	fmt.Fprintln(buf, "}")
+}
+
+func emitSwiftBridgeModels(buf *bytes.Buffer, bridges []bridgeDeclaration) {
+	for _, bridge := range bridges {
+		if len(bridge.Input) > 0 {
+			emitSwiftEndpointModel(buf, swiftBridgeModelName(bridge, "Input"), bridge.Input)
+			fmt.Fprintln(buf)
+		}
+		if len(bridge.Output) > 0 {
+			emitSwiftEndpointModel(buf, swiftBridgeModelName(bridge, "Response"), bridge.Output)
+			fmt.Fprintln(buf)
+		}
+	}
+}
+
+func emitSwiftBridgeRequest(buf *bytes.Buffer, bridge bridgeDeclaration) {
+	if len(bridge.Input) > 0 {
+		fmt.Fprintf(buf, "        let input = %s(%s)\n", swiftBridgeModelName(bridge, "Input"), swiftModelInitArgs(bridge.Input))
+		fmt.Fprintf(buf, "        let request = try GSXRequest.json(method: \"POST\", path: %s, body: input)\n", strconv.Quote(bridge.Path))
+		return
+	}
+	fmt.Fprintf(buf, "        let request = GSXRequest(method: \"POST\", path: %s)\n", strconv.Quote(bridge.Path))
+}
+
 func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	var buf bytes.Buffer
 	fmt.Fprintln(&buf, "// Code generated by gsxnative. DO NOT EDIT.")
 	fmt.Fprintln(&buf, "package generated")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXAuthRequirement")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeClient")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilitySpec")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXDataClient")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXHTTPTransport")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRequest")
@@ -759,9 +1085,15 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf)
 	emitKotlinEndpointSpecs(&buf, "GSXActions", cfg.Actions, "POST")
 	fmt.Fprintln(&buf)
+	emitKotlinCapabilitySpecs(&buf, cfg.Capabilities)
+	fmt.Fprintln(&buf)
+	emitKotlinBridgeSpecs(&buf, cfg.Bridges)
+	fmt.Fprintln(&buf)
 	emitKotlinEndpointClient(&buf, "GSXGeneratedDataClient", "load", cfg.DataLoaders, "GET")
 	fmt.Fprintln(&buf)
 	emitKotlinEndpointClient(&buf, "GSXGeneratedActionClient", "submit", cfg.Actions, "POST")
+	fmt.Fprintln(&buf)
+	emitKotlinBridgeClient(&buf, cfg.Bridges)
 	return buf.Bytes()
 }
 
@@ -781,6 +1113,22 @@ func emitKotlinGeneratedSpecs(buf *bytes.Buffer) {
 	fmt.Fprintln(buf, "    val cacheTTLSeconds: Int? = null,")
 	fmt.Fprintln(buf, "    val invalidates: List<String> = emptyList(),")
 	fmt.Fprintln(buf, "    val optimistic: String? = null,")
+	fmt.Fprintln(buf, "    val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,")
+	fmt.Fprintln(buf, "    val retryAttempts: Int? = null,")
+	fmt.Fprintln(buf, ")")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "data class GSXGeneratedCapabilitySpec(")
+	fmt.Fprintln(buf, "    val name: String,")
+	fmt.Fprintln(buf, "    val targets: List<String> = emptyList(),")
+	fmt.Fprintln(buf, "    val required: Boolean = false,")
+	fmt.Fprintln(buf, ")")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "data class GSXGeneratedBridgeSpec(")
+	fmt.Fprintln(buf, "    val service: String,")
+	fmt.Fprintln(buf, "    val method: String,")
+	fmt.Fprintln(buf, "    val path: String,")
+	fmt.Fprintln(buf, "    val input: List<GSXGeneratedParamSpec> = emptyList(),")
+	fmt.Fprintln(buf, "    val output: List<GSXGeneratedParamSpec> = emptyList(),")
 	fmt.Fprintln(buf, "    val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,")
 	fmt.Fprintln(buf, "    val retryAttempts: Int? = null,")
 	fmt.Fprintln(buf, ")")
@@ -818,6 +1166,42 @@ func emitKotlinEndpointSpecs(buf *bytes.Buffer, objectName string, endpoints []e
 			kotlinOptionalString(endpoint.Optimistic),
 			kotlinAuthRequirement(endpoint.Auth),
 			kotlinOptionalInt(endpoint.RetryAttempts),
+		)
+	}
+	fmt.Fprintln(buf, "    )")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinCapabilitySpecs(buf *bytes.Buffer, capabilities []capabilityDeclaration) {
+	fmt.Fprintln(buf, "object GSXCapabilities {")
+	fmt.Fprintln(buf, "    val specs: List<GSXGeneratedCapabilitySpec> = listOf(")
+	for _, capability := range capabilities {
+		fmt.Fprintf(buf, "        GSXGeneratedCapabilitySpec(name = %s, targets = %s, required = %s),\n",
+			strconv.Quote(capability.Name),
+			kotlinStringList(capabilityTargets(capability)),
+			kotlinBool(capability.Required),
+		)
+	}
+	fmt.Fprintln(buf, "    )")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    val runtimeSpecs: List<GSXCapabilitySpec> = specs.map { spec ->")
+	fmt.Fprintln(buf, "        GSXCapabilitySpec(name = spec.name, targets = spec.targets, required = spec.required)")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinBridgeSpecs(buf *bytes.Buffer, bridges []bridgeDeclaration) {
+	fmt.Fprintln(buf, "object GSXBridges {")
+	fmt.Fprintln(buf, "    val specs: List<GSXGeneratedBridgeSpec> = listOf(")
+	for _, bridge := range bridges {
+		fmt.Fprintf(buf, "        GSXGeneratedBridgeSpec(service = %s, method = %s, path = %s, input = %s, output = %s, auth = %s, retryAttempts = %s),\n",
+			strconv.Quote(bridge.Service),
+			strconv.Quote(bridge.Method),
+			strconv.Quote(bridge.Path),
+			kotlinParamSpecList(bridge.Input),
+			kotlinParamSpecList(bridge.Output),
+			kotlinAuthRequirement(bridge.Auth),
+			kotlinOptionalInt(bridge.RetryAttempts),
 		)
 	}
 	fmt.Fprintln(buf, "    )")
@@ -923,12 +1307,91 @@ func emitKotlinEndpointRequest(buf *bytes.Buffer, className string, endpoint end
 	fmt.Fprintf(buf, "        val request = GSXRequest(method = %s, path = %s)\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), pathExpr)
 }
 
+func emitKotlinBridgeClient(buf *bytes.Buffer, bridges []bridgeDeclaration) {
+	emitKotlinBridgeModels(buf, bridges)
+	if len(bridges) > 0 {
+		fmt.Fprintln(buf)
+	}
+	fmt.Fprintln(buf, "class GSXGeneratedBridgeClient(")
+	fmt.Fprintln(buf, "    private val client: GSXBridgeClient,")
+	fmt.Fprintln(buf, ") {")
+	fmt.Fprintln(buf, "    constructor(dataClient: GSXDataClient) : this(GSXBridgeClient(dataClient))")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    constructor(transport: GSXTransport) : this(GSXDataClient(transport))")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap()) : this(")
+	fmt.Fprintln(buf, "        GSXDataClient(GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders)),")
+	fmt.Fprintln(buf, "    )")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap(), tokenStore: GSXTokenStore) : this(")
+	fmt.Fprintln(buf, "        GSXDataClient(baseURL = baseURL, defaultHeaders = defaultHeaders, tokenStore = tokenStore),")
+	fmt.Fprintln(buf, "    )")
+	for _, bridge := range bridges {
+		fmt.Fprintln(buf)
+		resultType := "GSXResponse"
+		outputModel := kotlinBridgeModelName(bridge, "Response")
+		if len(bridge.Output) > 0 {
+			resultType = outputModel
+		}
+		fmt.Fprintf(buf, "    suspend fun %s(%s): %s {\n", kotlinBridgeMethodName(bridge), kotlinParamList(bridge.Input), resultType)
+		emitKotlinBridgeRequest(buf, bridge)
+		fmt.Fprintf(buf, "        val response = client.call(request, policy = %s)\n", kotlinBridgeRequestPolicy(bridge))
+		if len(bridge.Output) > 0 {
+			fmt.Fprintf(buf, "        return %s.fromJSON(response.text())\n", outputModel)
+		} else {
+			fmt.Fprintln(buf, "        return response")
+		}
+		fmt.Fprintln(buf, "    }")
+	}
+	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinBridgeModels(buf *bytes.Buffer, bridges []bridgeDeclaration) {
+	for _, bridge := range bridges {
+		if len(bridge.Input) > 0 {
+			emitKotlinEndpointInputModel(buf, kotlinBridgeModelName(bridge, "Input"), bridge.Input)
+			fmt.Fprintln(buf)
+		}
+		if len(bridge.Output) > 0 {
+			emitKotlinEndpointOutputModel(buf, kotlinBridgeModelName(bridge, "Response"), bridge.Output)
+			fmt.Fprintln(buf)
+		}
+	}
+}
+
+func emitKotlinBridgeRequest(buf *bytes.Buffer, bridge bridgeDeclaration) {
+	if len(bridge.Input) > 0 {
+		fmt.Fprintf(buf, "        val input = %s(%s)\n", kotlinBridgeModelName(bridge, "Input"), kotlinModelInitArgs(bridge.Input))
+		fmt.Fprintf(buf, "        val request = GSXRequest.json(method = \"POST\", path = %s, json = input.toJSON())\n", strconv.Quote(bridge.Path))
+		return
+	}
+	fmt.Fprintf(buf, "        val request = GSXRequest(method = \"POST\", path = %s)\n", strconv.Quote(bridge.Path))
+}
+
 func endpointMethod(endpoint endpointDeclaration, fallback string) string {
 	method := strings.ToUpper(strings.TrimSpace(endpoint.Method))
 	if method == "" {
 		return fallback
 	}
 	return method
+}
+
+func bridgeName(bridge bridgeDeclaration) string {
+	return bridge.Service + "." + bridge.Method
+}
+
+func capabilityTargets(capability capabilityDeclaration) []string {
+	if len(capability.Targets) == 0 {
+		return []string{"ios", "android"}
+	}
+	targets := make([]string, 0, len(capability.Targets))
+	for _, tgt := range capability.Targets {
+		tgt = strings.ToLower(strings.TrimSpace(tgt))
+		if tgt != "" {
+			targets = append(targets, tgt)
+		}
+	}
+	return targets
 }
 
 func paramNames(params []paramDeclaration) []string {
@@ -976,6 +1439,20 @@ func kotlinStringList(values []string) string {
 		quoted = append(quoted, strconv.Quote(value))
 	}
 	return "listOf(" + strings.Join(quoted, ", ") + ")"
+}
+
+func swiftBool(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
+func kotlinBool(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 func swiftParamSpecArray(params []paramDeclaration) string {
@@ -1078,6 +1555,26 @@ func endpointModelName(className string, endpoint endpointDeclaration, suffix st
 	return "GSXGenerated" + prefix + pascalIdentifier(endpoint.Name, "Endpoint") + suffix
 }
 
+func swiftBridgeModelName(bridge bridgeDeclaration, suffix string) string {
+	return bridgeModelName(bridge, suffix)
+}
+
+func kotlinBridgeModelName(bridge bridgeDeclaration, suffix string) string {
+	return bridgeModelName(bridge, suffix)
+}
+
+func bridgeModelName(bridge bridgeDeclaration, suffix string) string {
+	return "GSXGeneratedBridge" + pascalIdentifier(bridge.Service, "Service") + pascalIdentifier(bridge.Method, "Method") + suffix
+}
+
+func swiftBridgeMethodName(bridge bridgeDeclaration) string {
+	return lowerIdentifier(bridge.Service + " " + bridge.Method)
+}
+
+func kotlinBridgeMethodName(bridge bridgeDeclaration) string {
+	return lowerIdentifier(bridge.Service + " " + bridge.Method)
+}
+
 func swiftEndpointParamList(endpoint endpointDeclaration) string {
 	return swiftParamList(endpointMethodParams(endpoint))
 }
@@ -1151,6 +1648,17 @@ func swiftRequestPolicy(endpoint endpointDeclaration) string {
 	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
 }
 
+func swiftBridgeRequestPolicy(bridge bridgeDeclaration) string {
+	parts := []string{fmt.Sprintf("name: %s", strconv.Quote(bridgeName(bridge)))}
+	if bridge.Auth != "" {
+		parts = append(parts, "auth: "+swiftAuthRequirement(bridge.Auth))
+	}
+	if bridge.RetryAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("retryAttempts: %d", bridge.RetryAttempts))
+	}
+	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
+}
+
 func kotlinRequestPolicy(endpoint endpointDeclaration) string {
 	parts := []string{fmt.Sprintf("name = %s", strconv.Quote(endpoint.Name))}
 	if endpoint.CacheTTLSeconds > 0 {
@@ -1167,6 +1675,17 @@ func kotlinRequestPolicy(endpoint endpointDeclaration) string {
 	}
 	if endpoint.RetryAttempts > 0 {
 		parts = append(parts, fmt.Sprintf("retryAttempts = %d", endpoint.RetryAttempts))
+	}
+	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
+}
+
+func kotlinBridgeRequestPolicy(bridge bridgeDeclaration) string {
+	parts := []string{fmt.Sprintf("name = %s", strconv.Quote(bridgeName(bridge)))}
+	if bridge.Auth != "" {
+		parts = append(parts, "auth = "+kotlinAuthRequirement(bridge.Auth))
+	}
+	if bridge.RetryAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("retryAttempts = %d", bridge.RetryAttempts))
 	}
 	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
 }

@@ -75,14 +75,16 @@ type buildOptions struct {
 }
 
 type projectConfig struct {
-	Name        string                `json:"name"`
-	Module      string                `json:"module"`
-	Source      string                `json:"source"`
-	IOS         projectTargetConfig   `json:"ios"`
-	Android     projectTargetConfig   `json:"android"`
-	Routes      []routeDeclaration    `json:"routes,omitempty"`
-	DataLoaders []endpointDeclaration `json:"data_loaders,omitempty"`
-	Actions     []endpointDeclaration `json:"actions,omitempty"`
+	Name         string                  `json:"name"`
+	Module       string                  `json:"module"`
+	Source       string                  `json:"source"`
+	IOS          projectTargetConfig     `json:"ios"`
+	Android      projectTargetConfig     `json:"android"`
+	Routes       []routeDeclaration      `json:"routes,omitempty"`
+	DataLoaders  []endpointDeclaration   `json:"data_loaders,omitempty"`
+	Actions      []endpointDeclaration   `json:"actions,omitempty"`
+	Capabilities []capabilityDeclaration `json:"capabilities,omitempty"`
+	Bridges      []bridgeDeclaration     `json:"bridges,omitempty"`
 }
 
 type projectTargetConfig struct {
@@ -115,6 +117,22 @@ type endpointDeclaration struct {
 	Optimistic      string             `json:"optimistic,omitempty"`
 	Auth            string             `json:"auth,omitempty"`
 	RetryAttempts   int                `json:"retry_attempts,omitempty"`
+}
+
+type capabilityDeclaration struct {
+	Name     string   `json:"name"`
+	Targets  []string `json:"targets,omitempty"`
+	Required bool     `json:"required,omitempty"`
+}
+
+type bridgeDeclaration struct {
+	Service       string             `json:"service"`
+	Method        string             `json:"method"`
+	Path          string             `json:"path"`
+	Input         []paramDeclaration `json:"input,omitempty"`
+	Output        []paramDeclaration `json:"output,omitempty"`
+	Auth          string             `json:"auth,omitempty"`
+	RetryAttempts int                `json:"retry_attempts,omitempty"`
 }
 
 type paramDeclaration struct {

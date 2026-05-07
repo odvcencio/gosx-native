@@ -19,10 +19,17 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "func Home(props HomeProps) Node")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:route name=home path=/ component=Home")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:data name=loadGreeting method=GET path=/api/greeting output=message:string ttl=30s retry=2 auth=optional")
+	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:capability name=network targets=ios,android required=true")
+	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:bridge service=Vault method=echo path=/api/bridge/Vault.echo input=message:string output=message:string auth=required retry=2")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "GSXRouter(initial: GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/App.g.swift"), "public struct Home: GSXComponent")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXRoutes")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXCapabilities")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXGeneratedCapabilitySpec(name: "network", targets: ["ios", "android"], required: true)`)
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXBridges")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public final class GSXGeneratedBridgeClient")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func vaultEcho(message: String) async throws -> GSXGeneratedBridgeVaultEchoResponse")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public convenience init(baseURL: String, defaultHeaders: [String: String] = [:]) throws")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public convenience init(baseURL: String, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) throws")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXDataLoaders")
@@ -33,6 +40,11 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/MainActivity.kt"), "rememberGSXRouter(GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/App.kt"), "fun Home(props: HomeProps)")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXRoutes")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXCapabilities")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), `GSXGeneratedCapabilitySpec(name = "network", targets = listOf("ios", "android"), required = true)`)
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXBridges")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "class GSXGeneratedBridgeClient")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "suspend fun vaultEcho(message: String): GSXGeneratedBridgeVaultEchoResponse")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "import com.gosx.nativekit.GSXTokenStore")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap())")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap(), tokenStore: GSXTokenStore)")
@@ -50,7 +62,8 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 		t.Fatalf("parse config: %v", err)
 	}
 	if cfg.Source != "src/app.gsx" || cfg.IOS.SupportOutput == "" || cfg.Android.SupportOutput == "" ||
-		len(cfg.Routes) != 0 || len(cfg.DataLoaders) != 0 || len(cfg.Actions) != 0 {
+		len(cfg.Routes) != 0 || len(cfg.DataLoaders) != 0 || len(cfg.Actions) != 0 ||
+		len(cfg.Capabilities) != 0 || len(cfg.Bridges) != 0 {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 }
@@ -183,7 +196,9 @@ func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "//gosx:route") ||
 			strings.HasPrefix(strings.TrimSpace(line), "//gosx:data") ||
-			strings.HasPrefix(strings.TrimSpace(line), "//gosx:action") {
+			strings.HasPrefix(strings.TrimSpace(line), "//gosx:action") ||
+			strings.HasPrefix(strings.TrimSpace(line), "//gosx:capability") ||
+			strings.HasPrefix(strings.TrimSpace(line), "//gosx:bridge") {
 			continue
 		}
 		lines = append(lines, line)
@@ -203,6 +218,15 @@ func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
 	}
 	cfg.Routes = []routeDeclaration{{Name: "legacyHome", Path: "/", Component: "Home"}}
 	cfg.DataLoaders = []endpointDeclaration{{Name: "legacyLoad", Method: "GET", Path: "/api/legacy"}}
+	cfg.Capabilities = []capabilityDeclaration{{Name: "secureStorage", Targets: []string{"ios"}, Required: true}}
+	cfg.Bridges = []bridgeDeclaration{{
+		Service: "LegacyVault",
+		Method:  "echo",
+		Path:    "/api/bridge/LegacyVault.echo",
+		Input:   []paramDeclaration{{Name: "message", Type: "string"}},
+		Output:  []paramDeclaration{{Name: "message", Type: "string"}},
+		Auth:    "required",
+	}}
 	updated, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
@@ -216,6 +240,8 @@ func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
 	}
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXGeneratedRouteSpec(name: "legacyHome"`)
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func legacyLoad() async throws -> GSXResponse")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXGeneratedCapabilitySpec(name: "secureStorage", targets: ["ios"], required: true)`)
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func legacyVaultEcho(message: String) async throws -> GSXGeneratedBridgeLegacyVaultEchoResponse")
 }
 
 func TestParseSourceDeclarations(t *testing.T) {
@@ -224,12 +250,15 @@ func TestParseSourceDeclarations(t *testing.T) {
 //gosx:route name=details path=/details/:id component=Home params=id:string,count:int
 //gosx:data name=loadGreeting method=GET path=/api/greeting params=locale:string output=message:string ttl=45s retry=2 auth=optional
 //gosx:action name=submitGreeting method=POST path=/api/greeting input=message:string output=message:string invalidates=loadGreeting optimistic=echo auth=required retry=3
+//gosx:capability name=network targets=ios,android required=true
+//gosx:bridge service=Vault method=encrypt path=/api/bridge/Vault.encrypt input=plain:string output=cipher:string auth=required retry=2
 //gosx:native swift
 `))
 	if err != nil {
 		t.Fatalf("parse source declarations: %v", err)
 	}
-	if len(decls.Routes) != 2 || len(decls.DataLoaders) != 1 || len(decls.Actions) != 1 {
+	if len(decls.Routes) != 2 || len(decls.DataLoaders) != 1 || len(decls.Actions) != 1 ||
+		len(decls.Capabilities) != 1 || len(decls.Bridges) != 1 {
 		t.Fatalf("unexpected declarations: %#v", decls)
 	}
 	if got := decls.Routes[1].Params; len(got) != 2 || got[0].Name != "id" || got[1].Type != "int" {
@@ -243,6 +272,13 @@ func TestParseSourceDeclarations(t *testing.T) {
 		len(action.Invalidates) != 1 || action.Invalidates[0] != "loadGreeting" ||
 		action.Optimistic != "echo" || action.Auth != "required" || action.RetryAttempts != 3 {
 		t.Fatalf("unexpected action declaration: %#v", action)
+	}
+	if capability := decls.Capabilities[0]; capability.Name != "network" || len(capability.Targets) != 2 || !capability.Required {
+		t.Fatalf("unexpected capability declaration: %#v", capability)
+	}
+	if bridge := decls.Bridges[0]; bridge.Service != "Vault" || bridge.Method != "encrypt" || bridge.Auth != "required" ||
+		bridge.RetryAttempts != 2 || len(bridge.Input) != 1 || len(bridge.Output) != 1 {
+		t.Fatalf("unexpected bridge declaration: %#v", bridge)
 	}
 }
 
@@ -291,6 +327,53 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	}
 	if !strings.Contains(kotlin, `GSXRequestPolicy(name = "saveProfile", invalidates = listOf("loadProfile"), optimistic = "profileEcho", auth = GSXAuthRequirement.Required)`) {
 		t.Fatalf("expected Kotlin action policy metadata, got:\n%s", kotlin)
+	}
+}
+
+func TestEmitBridgeCapabilityDeclarations(t *testing.T) {
+	cfg := &projectConfig{
+		Capabilities: []capabilityDeclaration{{
+			Name:     "secureStorage",
+			Targets:  []string{"ios", "android"},
+			Required: true,
+		}},
+		Bridges: []bridgeDeclaration{{
+			Service:       "Vault",
+			Method:        "encrypt",
+			Path:          "/api/bridge/Vault.encrypt",
+			Input:         []paramDeclaration{{Name: "plain", Type: "string"}},
+			Output:        []paramDeclaration{{Name: "cipher", Type: "string"}},
+			Auth:          "required",
+			RetryAttempts: 2,
+		}},
+	}
+
+	swift := string(emitSwiftDeclarations(cfg))
+	if !strings.Contains(swift, `GSXGeneratedCapabilitySpec(name: "secureStorage", targets: ["ios", "android"], required: true)`) {
+		t.Fatalf("expected Swift capability spec, got:\n%s", swift)
+	}
+	if !strings.Contains(swift, "public func vaultEncrypt(plain: String) async throws -> GSXGeneratedBridgeVaultEncryptResponse") {
+		t.Fatalf("expected Swift bridge method, got:\n%s", swift)
+	}
+	if !strings.Contains(swift, `let request = try GSXRequest.json(method: "POST", path: "/api/bridge/Vault.encrypt", body: input)`) {
+		t.Fatalf("expected Swift bridge JSON request, got:\n%s", swift)
+	}
+	if !strings.Contains(swift, `GSXRequestPolicy(name: "Vault.encrypt", auth: GSXAuthRequirement.required, retryAttempts: 2)`) {
+		t.Fatalf("expected Swift bridge policy, got:\n%s", swift)
+	}
+
+	kotlin := string(emitKotlinDeclarations(cfg))
+	if !strings.Contains(kotlin, `GSXGeneratedCapabilitySpec(name = "secureStorage", targets = listOf("ios", "android"), required = true)`) {
+		t.Fatalf("expected Kotlin capability spec, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, "suspend fun vaultEncrypt(plain: String): GSXGeneratedBridgeVaultEncryptResponse") {
+		t.Fatalf("expected Kotlin bridge method, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, `val request = GSXRequest.json(method = "POST", path = "/api/bridge/Vault.encrypt", json = input.toJSON())`) {
+		t.Fatalf("expected Kotlin bridge JSON request, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, `GSXRequestPolicy(name = "Vault.encrypt", auth = GSXAuthRequirement.Required, retryAttempts = 2)`) {
+		t.Fatalf("expected Kotlin bridge policy, got:\n%s", kotlin)
 	}
 }
 

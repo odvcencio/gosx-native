@@ -173,6 +173,36 @@ final class GSXSignalTests: XCTestCase {
 
         XCTAssertEqual(base.requests.first?.headers["Authorization"], "Bearer explicit")
     }
+
+    func testCapabilityCheckerReportsMissingRequiredCapabilities() {
+        let report = GSXCapabilityChecker.check(
+            required: [
+                GSXCapabilitySpec(name: "network", targets: ["ios"], required: true),
+                GSXCapabilitySpec(name: "secureStorage", targets: ["ios"], required: true),
+                GSXCapabilitySpec(name: "androidOnly", targets: ["android"], required: true),
+                GSXCapabilitySpec(name: "optionalThing", targets: ["ios"], required: false),
+            ],
+            available: ["network"],
+            target: "ios"
+        )
+
+        XCTAssertFalse(report.isSatisfied)
+        XCTAssertEqual(report.required, ["network", "secureStorage"])
+        XCTAssertEqual(report.missing, ["secureStorage"])
+    }
+
+    func testBridgeClientUsesDataClientPolicyPath() async throws {
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("bridge".utf8)))
+        let client = GSXBridgeClient(dataClient: GSXDataClient(transport: transport))
+
+        let response = try await client.call(
+            GSXRequest(method: "POST", path: "/api/bridge/Vault.echo"),
+            policy: GSXRequestPolicy(name: "Vault.echo", auth: .required, retryAttempts: 1)
+        )
+
+        XCTAssertEqual(response.body, Data("bridge".utf8))
+        XCTAssertEqual(transport.requests, [GSXRequest(method: "POST", path: "/api/bridge/Vault.echo")])
+    }
 }
 
 private struct GreetingPayload: Codable, Equatable {
