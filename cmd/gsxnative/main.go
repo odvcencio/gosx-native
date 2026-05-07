@@ -7,11 +7,13 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: gsxnative <compile|emit|check|build|scene-conform> ...")
+		fmt.Fprintln(os.Stderr, "usage: gsxnative <init|compile|emit|check|build|scene-conform> ...")
 		os.Exit(2)
 	}
 	var err error
 	switch os.Args[1] {
+	case "init":
+		err = runInit(os.Args[2:])
 	case "compile":
 		err = runCompile(os.Args[2:])
 	case "emit":

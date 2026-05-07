@@ -31,6 +31,13 @@ jobs:
       - name: Test
         working-directory: gosx-native
         run: go test -race ./...
+      - name: Scaffold smoke
+        working-directory: gosx-native
+        run: |
+          appdir="$RUNNER_TEMP/GSXSmoke"
+          go run ./cmd/gsxnative init "$appdir" --name GSXSmoke --module com.example.gsxsmoke --runtime-root "$PWD"
+          go run ./cmd/gsxnative check ios "$appdir/src/app.gsx"
+          go run ./cmd/gsxnative check android "$appdir/src/app.gsx"
       - name: Vet
         working-directory: gosx-native
         run: go vet ./...
@@ -82,6 +89,13 @@ jobs:
         run: |
           go run ./cmd/gsxnative build ios --source testdata/corpus/go/scene3d.gsx --output examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
           git diff --exit-code -- examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
+      - name: Scaffolded iOS app build
+        working-directory: gosx-native
+        run: |
+          go build -o "$RUNNER_TEMP/gsxnative" ./cmd/gsxnative
+          appdir="$RUNNER_TEMP/GSXSmokeIOS"
+          "$RUNNER_TEMP/gsxnative" init "$appdir" --name GSXSmokeIOS --module com.example.gsxsmokeios --runtime-root "$PWD"
+          (cd "$appdir" && "$RUNNER_TEMP/gsxnative" build ios)
       - name: Scene3D fixture iOS compile matrix
         working-directory: gosx-native
         run: make build-scene3d-fixtures-ios
@@ -126,6 +140,13 @@ jobs:
           go run ./cmd/gsxnative build android
           go run ./cmd/gsxnative build android --source testdata/corpus/go/scene3d.gsx --output examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt --task :app:compileDebugKotlin
           git diff --exit-code -- examples/counter-android/app/src/main/kotlin/generated/Counter.kt examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt
+      - name: Scaffolded Android app build
+        working-directory: gosx-native
+        run: |
+          go build -o "$RUNNER_TEMP/gsxnative" ./cmd/gsxnative
+          appdir="$RUNNER_TEMP/GSXSmokeAndroid"
+          "$RUNNER_TEMP/gsxnative" init "$appdir" --name GSXSmokeAndroid --module com.example.gsxsmokeandroid --runtime-root "$PWD"
+          (cd "$appdir" && "$RUNNER_TEMP/gsxnative" build android --task :app:compileDebugKotlin)
       - name: Scene3D fixture Android compile matrix
         working-directory: gosx-native
         run: make build-scene3d-fixtures-android

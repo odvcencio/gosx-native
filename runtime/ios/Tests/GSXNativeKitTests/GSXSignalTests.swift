@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import SwiftUI
 @testable import GSXNativeKit
 
@@ -26,5 +27,60 @@ final class GSXSignalTests: XCTestCase {
         let scene = GSXScene3DScene(backend: .canvas)
 
         XCTAssertEqual(scene.backend, .canvas)
+    }
+
+    func testRouterMaintainsNavigationStack() {
+        let router = GSXRouter(initial: GSXRoute("home"))
+
+        router.push(GSXRoute("details", params: ["id": "42"]))
+        XCTAssertEqual(router.current.id, "details?id=42")
+
+        XCTAssertEqual(router.pop()?.name, "details")
+        XCTAssertEqual(router.current.name, "home")
+
+        router.replace(with: GSXRoute("settings"))
+        XCTAssertEqual(router.current.name, "settings")
+
+        router.reset(to: GSXRoute("home"))
+        XCTAssertEqual(router.stack, [GSXRoute("home")])
+    }
+
+    func testDataClientReturnsSuccessfulResponses() async throws {
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("ok".utf8)))
+        let client = GSXDataClient(transport: transport)
+
+        let response = try await client.load(GSXRequest(path: "/hello"))
+
+        XCTAssertEqual(response.body, Data("ok".utf8))
+        XCTAssertEqual(transport.requests, [GSXRequest(path: "/hello")])
+    }
+
+    func testDataClientThrowsHTTPStatusErrors() async {
+        let transport = StaticTransport(response: GSXResponse(status: 500, body: Data("nope".utf8)))
+        let client = GSXDataClient(transport: transport)
+
+        do {
+            _ = try await client.load(GSXRequest(path: "/boom"))
+            XCTFail("expected HTTP status error")
+        } catch GSXDataError.httpStatus(let status, let body) {
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(body, Data("nope".utf8))
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+}
+
+private final class StaticTransport: GSXTransport {
+    let response: GSXResponse
+    var requests: [GSXRequest] = []
+
+    init(response: GSXResponse) {
+        self.response = response
+    }
+
+    func send(_ request: GSXRequest) async throws -> GSXResponse {
+        requests.append(request)
+        return response
     }
 }
