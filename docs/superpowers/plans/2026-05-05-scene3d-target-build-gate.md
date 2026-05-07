@@ -29,6 +29,7 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - Runtime Scene3D now has explicit backend selection: native is the default, and `backend="canvas"` keeps the previous SwiftUI/Compose Canvas renderer as a fallback.
 - The initial native runtime path is SceneKit on iOS and an OpenGL ES `GLSurfaceView` bridge on Android, so checked-in demos exercise GPU-backed native surfaces instead of only declarative Canvas placeholders.
 - CI UI smoke tests now inspect simulator/emulator screenshots and require Scene3D-colored native pixels, so the gate proves the checked-in native surfaces painted instead of only existing in the accessibility tree.
+- CI now emits every valid Scene3D fixture as temporary Swift/Kotlin app source and compiler-checks the fixture matrix on iOS and Android: instancing, post-fx, compute, HTML, Canvas fallback, and spread props.
 - Harden the native GPU bridge into full renderer-grade `scene.IR` parity, including a final Metal/Vulkan/Filament decision if SceneKit/OpenGL ES is not sufficient.
 - Replace Canvas-level post-fx placeholders with renderer-grade post-fx passes in the native backends.
 - Replace compute-particle placeholders with real GPU compute in the native backends.

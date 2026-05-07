@@ -1,4 +1,6 @@
-.PHONY: test smoke scene-conform build-ios build-android build-all build-scene3d-ios build-scene3d-android android-smoke android-connected android-managed demo lint
+SCENE3D_NATIVE_FIXTURES := scene3d_instancing scene3d_postfx scene3d_compute scene3d_html scene3d_canvas scene3d_spread
+
+.PHONY: test smoke scene-conform build-ios build-android build-all build-scene3d-ios build-scene3d-android build-scene3d-fixtures-ios build-scene3d-fixtures-android android-smoke android-connected android-managed demo lint
 
 test:
 	go test ./...
@@ -23,6 +25,31 @@ build-scene3d-ios:
 
 build-scene3d-android:
 	go run ./cmd/gsxnative build android --source testdata/corpus/go/scene3d.gsx --output examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt --task :app:compileDebugKotlin
+
+build-scene3d-fixtures-ios:
+	@set -eu; \
+	derived_data="$$(mktemp -d)"; \
+	cleanup() { rm -f examples/counter-ios/CounterDemo/Generated/SceneFixture_*.swift; rm -rf "$$derived_data"; }; \
+	trap cleanup EXIT; \
+	for fixture in $(SCENE3D_NATIVE_FIXTURES); do \
+		go run ./cmd/gsxnative emit ios "testdata/corpus/go/$$fixture.gsx" > "examples/counter-ios/CounterDemo/Generated/SceneFixture_$$fixture.swift"; \
+	done; \
+	(cd examples/counter-ios && xcodegen generate); \
+	xcodebuild \
+		-project examples/counter-ios/CounterDemo.xcodeproj \
+		-scheme CounterDemo \
+		-destination "platform=iOS Simulator,name=$${IOS_SIMULATOR_NAME:-iPhone 16}" \
+		-derivedDataPath "$$derived_data" \
+		build
+
+build-scene3d-fixtures-android:
+	@set -eu; \
+	cleanup() { rm -f examples/counter-android/app/src/main/kotlin/generated/SceneFixture_*.kt; }; \
+	trap cleanup EXIT; \
+	for fixture in $(SCENE3D_NATIVE_FIXTURES); do \
+		go run ./cmd/gsxnative emit android "testdata/corpus/go/$$fixture.gsx" > "examples/counter-android/app/src/main/kotlin/generated/SceneFixture_$$fixture.kt"; \
+	done; \
+	(cd examples/counter-android && gradle --no-daemon :app:compileDebugKotlin)
 
 android-smoke:
 	go run ./cmd/gsxnative build android

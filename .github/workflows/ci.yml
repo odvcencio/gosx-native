@@ -82,6 +82,9 @@ jobs:
         run: |
           go run ./cmd/gsxnative build ios --source testdata/corpus/go/scene3d.gsx --output examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
           git diff --exit-code -- examples/counter-ios/CounterDemo/Generated/SceneDemo.swift
+      - name: Scene3D fixture iOS compile matrix
+        working-directory: gosx-native
+        run: make build-scene3d-fixtures-ios
       - name: E2E
         working-directory: gosx-native
         run: go test -tags smoke -v ./test/e2e/...
@@ -123,6 +126,9 @@ jobs:
           go run ./cmd/gsxnative build android
           go run ./cmd/gsxnative build android --source testdata/corpus/go/scene3d.gsx --output examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt --task :app:compileDebugKotlin
           git diff --exit-code -- examples/counter-android/app/src/main/kotlin/generated/Counter.kt examples/counter-android/app/src/main/kotlin/generated/SceneDemo.kt
+      - name: Scene3D fixture Android compile matrix
+        working-directory: gosx-native
+        run: make build-scene3d-fixtures-android
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
