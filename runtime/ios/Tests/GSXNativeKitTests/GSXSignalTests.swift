@@ -174,6 +174,23 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(base.requests.first?.headers["Authorization"], "Bearer explicit")
     }
 
+    func testBearerAuthTransportRefreshesAndRetriesUnauthorizedResponses() async throws {
+        let base = SequenceTransport(responses: [
+            GSXResponse(status: 401, body: Data("expired".utf8)),
+            GSXResponse(status: 200, body: Data("ok".utf8)),
+        ])
+        let tokenStore = GSXMemoryTokenStore("expired-token", refresh: {
+            "fresh-token"
+        })
+        let transport = GSXBearerAuthTransport(base: base, tokenStore: tokenStore)
+
+        let response = try await transport.send(GSXRequest(path: "/secure"))
+
+        XCTAssertEqual(response.body, Data("ok".utf8))
+        XCTAssertEqual(base.requests.map { $0.headers["Authorization"] }, ["Bearer expired-token", "Bearer fresh-token"])
+        XCTAssertEqual(try await tokenStore.token(), "fresh-token")
+    }
+
     func testCapabilityCheckerReportsMissingRequiredCapabilities() {
         let report = GSXCapabilityChecker.check(
             required: [

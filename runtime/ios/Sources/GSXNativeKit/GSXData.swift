@@ -151,11 +151,19 @@ public protocol GSXTokenStore {
     func token() async throws -> String?
 }
 
-public actor GSXMemoryTokenStore: GSXTokenStore {
-    private var currentToken: String?
+public protocol GSXRefreshableTokenStore: GSXTokenStore {
+    func refreshToken() async throws -> String?
+}
 
-    public init(_ token: String? = nil) {
+public typealias GSXTokenRefreshHandler = @Sendable () async throws -> String?
+
+public actor GSXMemoryTokenStore: GSXRefreshableTokenStore {
+    private var currentToken: String?
+    private let refreshHandler: GSXTokenRefreshHandler?
+
+    public init(_ token: String? = nil, refresh: GSXTokenRefreshHandler? = nil) {
         self.currentToken = token
+        self.refreshHandler = refresh
     }
 
     public func token() async throws -> String? {
@@ -164,6 +172,15 @@ public actor GSXMemoryTokenStore: GSXTokenStore {
 
     public func setToken(_ token: String?) {
         currentToken = token
+    }
+
+    public func refreshToken() async throws -> String? {
+        guard let refreshHandler else {
+            return nil
+        }
+        let token = try await refreshHandler()
+        currentToken = token
+        return token
     }
 }
 
@@ -177,21 +194,40 @@ public final class GSXBearerAuthTransport: GSXTransport {
     }
 
     public func send(_ request: GSXRequest) async throws -> GSXResponse {
-        guard let rawToken = try await tokenStore.token() else {
-            return try await base.send(request)
-        }
-        let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty, !GSXBearerAuthTransport.hasAuthorizationHeader(request.headers) else {
+        guard !GSXBearerAuthTransport.hasAuthorizationHeader(request.headers) else {
             return try await base.send(request)
         }
 
-        var authorized = request
-        authorized.headers["Authorization"] = "Bearer \(token)"
-        return try await base.send(authorized)
+        let response = try await base.send(authorizedRequest(request, token: try await tokenStore.token()))
+        guard response.status == 401, let refreshable = tokenStore as? any GSXRefreshableTokenStore else {
+            return response
+        }
+        guard let refreshed = normalizedToken(try await refreshable.refreshToken()) else {
+            return response
+        }
+
+        return try await base.send(authorizedRequest(request, token: refreshed))
     }
 
     private static func hasAuthorizationHeader(_ headers: [String: String]) -> Bool {
         headers.keys.contains { $0.caseInsensitiveCompare("Authorization") == .orderedSame }
+    }
+
+    private func authorizedRequest(_ request: GSXRequest, token rawToken: String?) -> GSXRequest {
+        guard let token = normalizedToken(rawToken) else {
+            return request
+        }
+        var authorized = request
+        authorized.headers["Authorization"] = "Bearer \(token)"
+        return authorized
+    }
+
+    private func normalizedToken(_ rawToken: String?) -> String? {
+        guard let rawToken else {
+            return nil
+        }
+        let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
     }
 }
 

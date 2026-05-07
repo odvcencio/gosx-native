@@ -107,13 +107,24 @@ interface GSXTokenStore {
     suspend fun token(): String?
 }
 
+interface GSXRefreshableTokenStore : GSXTokenStore {
+    suspend fun refreshToken(): String?
+}
+
 class GSXMemoryTokenStore(
     initialToken: String? = null,
-) : GSXTokenStore {
+    private val refreshHandler: (suspend () -> String?)? = null,
+) : GSXRefreshableTokenStore {
     @Volatile
     private var currentToken: String? = initialToken
 
     override suspend fun token(): String? = currentToken
+
+    override suspend fun refreshToken(): String? {
+        val refreshed = refreshHandler?.invoke() ?: return null
+        currentToken = refreshed
+        return refreshed
+    }
 
     fun setToken(token: String?) {
         currentToken = token
@@ -125,12 +136,28 @@ class GSXBearerAuthTransport(
     private val tokenStore: GSXTokenStore,
 ) : GSXTransport {
     override suspend fun send(request: GSXRequest): GSXResponse {
-        val token = tokenStore.token()?.trim()
-        if (token.isNullOrEmpty() || request.headers.keys.any { it.equals("Authorization", ignoreCase = true) }) {
+        if (request.headers.keys.any { it.equals("Authorization", ignoreCase = true) }) {
             return base.send(request)
         }
 
-        return base.send(request.copy(headers = request.headers + ("Authorization" to "Bearer $token")))
+        val response = base.send(authorizedRequest(request, tokenStore.token()))
+        if (response.status != 401) {
+            return response
+        }
+        val refreshable = tokenStore as? GSXRefreshableTokenStore ?: return response
+        val refreshed = refreshable.refreshToken()?.trim()
+        if (refreshed.isNullOrEmpty()) {
+            return response
+        }
+        return base.send(authorizedRequest(request, refreshed))
+    }
+
+    private fun authorizedRequest(request: GSXRequest, rawToken: String?): GSXRequest {
+        val token = rawToken?.trim()
+        if (token.isNullOrEmpty()) {
+            return request
+        }
+        return request.copy(headers = request.headers + ("Authorization" to "Bearer $token"))
     }
 }
 
