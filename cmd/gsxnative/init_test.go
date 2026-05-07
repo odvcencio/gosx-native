@@ -22,6 +22,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:capability name=network targets=ios,android required=true")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:bridge service=Vault method=echo path=/api/bridge/Vault.echo input=message:string output=message:string auth=required retry=2")
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative build all --release --artifact-manifest build/gsxnative-artifacts.json")
+	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative build all --release --publish-dir build/artifacts")
 	assertFileContains(t, filepath.Join(dir, "README.md"), ".gsxnative/signing.json")
 	assertFileContains(t, filepath.Join(dir, ".gsxnative/.gitignore"), "signing.json")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")

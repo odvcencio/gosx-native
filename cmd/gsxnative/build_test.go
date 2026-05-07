@@ -242,6 +242,60 @@ func TestBuildAndroidReleaseSigningConfigWritesRedactedManifest(t *testing.T) {
 	}
 }
 
+func TestBuildAndroidPublishesExpectedArtifacts(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	apkPath := filepath.Join(project, "app/build/outputs/apk/release/app-release.apk")
+	if err := os.MkdirAll(filepath.Dir(apkPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(apkPath, []byte("signed-apk"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	publishDir := filepath.Join(t.TempDir(), "published")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--release",
+		"--publish-dir", publishDir,
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+	publishedAPK := filepath.Join(publishDir, "android", "app-release.apk")
+	data, err := os.ReadFile(publishedAPK)
+	if err != nil {
+		t.Fatalf("read published artifact: %v", err)
+	}
+	if string(data) != "signed-apk" {
+		t.Fatalf("unexpected published artifact body: %q", data)
+	}
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	target := manifest.Targets[0]
+	if !containsPublishedArtifact(target.PublishedArtifacts, "android_apk", apkPath, publishedAPK) {
+		t.Fatalf("expected published APK in manifest: %#v", target.PublishedArtifacts)
+	}
+}
+
 func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
@@ -582,6 +636,15 @@ func containsString(values []string, want string) bool {
 func containsArtifact(artifacts []expectedArtifact, kind, path string) bool {
 	for _, artifact := range artifacts {
 		if artifact.Kind == kind && artifact.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPublishedArtifact(artifacts []publishedArtifact, kind, source, path string) bool {
+	for _, artifact := range artifacts {
+		if artifact.Kind == kind && artifact.Source == source && artifact.Path == path {
 			return true
 		}
 	}

@@ -53,52 +53,54 @@ func (l *stringList) Set(value string) error {
 }
 
 type buildOptions struct {
-	source            string
-	output            string
-	project           string
-	config            string
-	iosOutput         string
-	iosProject        string
-	androidOutput     string
-	androidProject    string
-	xcodeProject      string
-	scheme            string
-	simulator         string
-	configuration     string
-	archivePath       string
-	exportOptions     string
-	exportPath        string
-	artifactManifest  string
-	signingConfig     string
-	environment       string
-	androidFlavor     string
-	schemeSet         bool
-	simulatorSet      bool
-	configurationSet  bool
-	release           bool
-	codegenOnly       bool
-	gradleTasks       stringList
-	gradleProperties  stringList
-	projectConfig     *projectConfig
-	projectBaseDir    string
-	signing           *releaseSigningConfig
-	signingConfigPath string
+	source             string
+	output             string
+	project            string
+	config             string
+	iosOutput          string
+	iosProject         string
+	androidOutput      string
+	androidProject     string
+	xcodeProject       string
+	scheme             string
+	simulator          string
+	configuration      string
+	archivePath        string
+	exportOptions      string
+	exportPath         string
+	artifactManifest   string
+	artifactPublishDir string
+	signingConfig      string
+	environment        string
+	androidFlavor      string
+	schemeSet          bool
+	simulatorSet       bool
+	configurationSet   bool
+	release            bool
+	codegenOnly        bool
+	gradleTasks        stringList
+	gradleProperties   stringList
+	projectConfig      *projectConfig
+	projectBaseDir     string
+	signing            *releaseSigningConfig
+	signingConfigPath  string
 }
 
 type projectConfig struct {
-	Name             string                  `json:"name"`
-	Module           string                  `json:"module"`
-	Source           string                  `json:"source"`
-	IOS              projectTargetConfig     `json:"ios"`
-	Android          projectTargetConfig     `json:"android"`
-	Environment      string                  `json:"environment,omitempty"`
-	ArtifactManifest string                  `json:"artifact_manifest,omitempty"`
-	SigningConfig    string                  `json:"signing_config,omitempty"`
-	Routes           []routeDeclaration      `json:"routes,omitempty"`
-	DataLoaders      []endpointDeclaration   `json:"data_loaders,omitempty"`
-	Actions          []endpointDeclaration   `json:"actions,omitempty"`
-	Capabilities     []capabilityDeclaration `json:"capabilities,omitempty"`
-	Bridges          []bridgeDeclaration     `json:"bridges,omitempty"`
+	Name               string                  `json:"name"`
+	Module             string                  `json:"module"`
+	Source             string                  `json:"source"`
+	IOS                projectTargetConfig     `json:"ios"`
+	Android            projectTargetConfig     `json:"android"`
+	Environment        string                  `json:"environment,omitempty"`
+	ArtifactManifest   string                  `json:"artifact_manifest,omitempty"`
+	ArtifactPublishDir string                  `json:"artifact_publish_dir,omitempty"`
+	SigningConfig      string                  `json:"signing_config,omitempty"`
+	Routes             []routeDeclaration      `json:"routes,omitempty"`
+	DataLoaders        []endpointDeclaration   `json:"data_loaders,omitempty"`
+	Actions            []endpointDeclaration   `json:"actions,omitempty"`
+	Capabilities       []capabilityDeclaration `json:"capabilities,omitempty"`
+	Bridges            []bridgeDeclaration     `json:"bridges,omitempty"`
 }
 
 type projectTargetConfig struct {
@@ -220,13 +222,21 @@ func runBuildWithContext(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		return writeBuildArtifactManifest(opts, []nativeBuildResult{result})
+		results, err := publishBuildArtifacts(opts, []nativeBuildResult{result})
+		if err != nil {
+			return err
+		}
+		return writeBuildArtifactManifest(opts, results)
 	case "ios":
 		result, err := buildNativeTarget(ctx, root, target.IOS, opts)
 		if err != nil {
 			return err
 		}
-		return writeBuildArtifactManifest(opts, []nativeBuildResult{result})
+		results, err := publishBuildArtifacts(opts, []nativeBuildResult{result})
+		if err != nil {
+			return err
+		}
+		return writeBuildArtifactManifest(opts, results)
 	case "all":
 		if opts.project != "" || opts.output != "" {
 			return fmt.Errorf("build all does not accept --project or --output; use --ios-project/--android-project and --ios-output/--android-output")
@@ -239,7 +249,11 @@ func runBuildWithContext(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		return writeBuildArtifactManifest(opts, []nativeBuildResult{iosResult, androidResult})
+		results, err := publishBuildArtifacts(opts, []nativeBuildResult{iosResult, androidResult})
+		if err != nil {
+			return err
+		}
+		return writeBuildArtifactManifest(opts, results)
 	default:
 		return fmt.Errorf("unknown build target: %s (supported: ios, android, all)", args[0])
 	}
@@ -269,6 +283,7 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.exportOptions, "export-options-plist", "", "ExportOptions.plist for iOS release export")
 	fs.StringVar(&opts.exportPath, "export-path", "", "iOS export directory for release builds")
 	fs.StringVar(&opts.artifactManifest, "artifact-manifest", "", "write a JSON manifest describing generated and native build artifacts")
+	fs.StringVar(&opts.artifactPublishDir, "publish-dir", "", "copy expected native build artifacts into this directory after a successful build")
 	fs.StringVar(&opts.signingConfig, "signing-config", "", "release signing config JSON; defaults to .gsxnative/signing.json when present")
 	fs.StringVar(&opts.environment, "env", "", "build environment name forwarded to native build tools")
 	fs.StringVar(&opts.androidFlavor, "flavor", "", "Android product flavor for default app build tasks")
@@ -329,6 +344,9 @@ func applyBuildProjectConfig(opts *buildOptions, targetName string) error {
 	}
 	if opts.artifactManifest == "" && cfg.ArtifactManifest != "" {
 		opts.artifactManifest = resolveConfigPath(baseDir, cfg.ArtifactManifest)
+	}
+	if opts.artifactPublishDir == "" && cfg.ArtifactPublishDir != "" {
+		opts.artifactPublishDir = resolveConfigPath(baseDir, cfg.ArtifactPublishDir)
 	}
 	if opts.signingConfig == "" && cfg.SigningConfig != "" {
 		opts.signingConfig = resolveConfigPath(baseDir, cfg.SigningConfig)
@@ -654,23 +672,24 @@ type buildArtifactManifest struct {
 }
 
 type nativeBuildResult struct {
-	Target            string             `json:"target"`
-	Source            string             `json:"source"`
-	Project           string             `json:"project"`
-	GeneratedOutput   string             `json:"generated_output"`
-	SupportOutput     string             `json:"support_output,omitempty"`
-	Release           bool               `json:"release"`
-	Environment       string             `json:"environment,omitempty"`
-	Flavor            string             `json:"flavor,omitempty"`
-	CodegenOnly       bool               `json:"codegen_only,omitempty"`
-	BuildSystem       string             `json:"build_system,omitempty"`
-	BuildTasks        []string           `json:"build_tasks,omitempty"`
-	BuildProperties   []string           `json:"build_properties,omitempty"`
-	Configuration     string             `json:"configuration,omitempty"`
-	ArchivePath       string             `json:"archive_path,omitempty"`
-	ExportPath        string             `json:"export_path,omitempty"`
-	ExpectedArtifacts []expectedArtifact `json:"expected_artifacts,omitempty"`
-	Signing           *signingSummary    `json:"signing,omitempty"`
+	Target             string              `json:"target"`
+	Source             string              `json:"source"`
+	Project            string              `json:"project"`
+	GeneratedOutput    string              `json:"generated_output"`
+	SupportOutput      string              `json:"support_output,omitempty"`
+	Release            bool                `json:"release"`
+	Environment        string              `json:"environment,omitempty"`
+	Flavor             string              `json:"flavor,omitempty"`
+	CodegenOnly        bool                `json:"codegen_only,omitempty"`
+	BuildSystem        string              `json:"build_system,omitempty"`
+	BuildTasks         []string            `json:"build_tasks,omitempty"`
+	BuildProperties    []string            `json:"build_properties,omitempty"`
+	Configuration      string              `json:"configuration,omitempty"`
+	ArchivePath        string              `json:"archive_path,omitempty"`
+	ExportPath         string              `json:"export_path,omitempty"`
+	ExpectedArtifacts  []expectedArtifact  `json:"expected_artifacts,omitempty"`
+	PublishedArtifacts []publishedArtifact `json:"published_artifacts,omitempty"`
+	Signing            *signingSummary     `json:"signing,omitempty"`
 }
 
 type signingSummary struct {
@@ -691,6 +710,12 @@ type signingSummary struct {
 type expectedArtifact struct {
 	Kind string `json:"kind"`
 	Path string `json:"path"`
+}
+
+type publishedArtifact struct {
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
+	Path   string `json:"path"`
 }
 
 func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativeBuild, error) {
@@ -819,6 +844,97 @@ func writeBuildArtifactManifest(opts buildOptions, results []nativeBuildResult) 
 		return err
 	}
 	return os.WriteFile(opts.artifactManifest, buf.Bytes(), 0644)
+}
+
+func publishBuildArtifacts(opts buildOptions, results []nativeBuildResult) ([]nativeBuildResult, error) {
+	if opts.artifactPublishDir == "" {
+		return results, nil
+	}
+	published := append([]nativeBuildResult(nil), results...)
+	for i := range published {
+		targetDir := filepath.Join(opts.artifactPublishDir, published[i].Target)
+		for _, artifact := range published[i].ExpectedArtifacts {
+			destination := filepath.Join(targetDir, filepath.Base(artifact.Path))
+			if err := copyBuildArtifact(artifact.Path, destination); err != nil {
+				return nil, fmt.Errorf("publish %s artifact %s: %w", artifact.Kind, artifact.Path, err)
+			}
+			published[i].PublishedArtifacts = append(published[i].PublishedArtifacts, publishedArtifact{
+				Kind:   artifact.Kind,
+				Source: artifact.Path,
+				Path:   destination,
+			})
+		}
+	}
+	return published, nil
+}
+
+func copyBuildArtifact(source, destination string) error {
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return copyBuildArtifactDir(source, destination)
+	}
+	return copyBuildArtifactFile(source, destination, info.Mode())
+}
+
+func copyBuildArtifactDir(source, destination string) error {
+	if err := os.RemoveAll(destination); err != nil {
+		return err
+	}
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(destination, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(targetPath, info.Mode())
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return err
+			}
+			_ = os.Remove(targetPath)
+			return os.Symlink(link, targetPath)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		return copyBuildArtifactFile(path, targetPath, info.Mode())
+	})
+}
+
+func copyBuildArtifactFile(source, destination string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+		return err
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func buildAndroid(ctx context.Context, cfg nativeBuild) error {
