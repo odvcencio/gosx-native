@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,10 @@ type devOptions struct {
 	androidAPK      string
 	iosBundleID     string
 	iosAppPath      string
+	reloadStamp     string
+	reloadCommands  stringList
+	androidReload   stringList
+	iosReload       stringList
 	adb             string
 	xcrun           string
 }
@@ -34,6 +39,17 @@ type devOptions struct {
 type watchedFile struct {
 	size    int64
 	modTime time.Time
+}
+
+type devReloadStamp struct {
+	Version     int      `json:"version"`
+	Target      string   `json:"target"`
+	CompletedAt string   `json:"completed_at"`
+	NativeBuild bool     `json:"native_build"`
+	CodegenOnly bool     `json:"codegen_only"`
+	Install     bool     `json:"install"`
+	Launch      bool     `json:"launch"`
+	BuildArgs   []string `json:"build_args,omitempty"`
 }
 
 func runDev(args []string) error {
@@ -204,6 +220,54 @@ func parseDevOptions(args []string) (devOptions, error) {
 			i = next
 		case strings.HasPrefix(arg, "--ios-app="):
 			opts.iosAppPath = strings.TrimPrefix(arg, "--ios-app=")
+		case arg == "--reload-stamp":
+			value, next, err := devFlagValue(args, i, "reload-stamp")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.reloadStamp = value
+			i = next
+		case strings.HasPrefix(arg, "--reload-stamp="):
+			opts.reloadStamp = strings.TrimPrefix(arg, "--reload-stamp=")
+		case arg == "--reload-command":
+			value, next, err := devFlagValue(args, i, "reload-command")
+			if err != nil {
+				return devOptions{}, err
+			}
+			if err := opts.reloadCommands.Set(value); err != nil {
+				return devOptions{}, err
+			}
+			i = next
+		case strings.HasPrefix(arg, "--reload-command="):
+			if err := opts.reloadCommands.Set(strings.TrimPrefix(arg, "--reload-command=")); err != nil {
+				return devOptions{}, err
+			}
+		case arg == "--android-reload-command":
+			value, next, err := devFlagValue(args, i, "android-reload-command")
+			if err != nil {
+				return devOptions{}, err
+			}
+			if err := opts.androidReload.Set(value); err != nil {
+				return devOptions{}, err
+			}
+			i = next
+		case strings.HasPrefix(arg, "--android-reload-command="):
+			if err := opts.androidReload.Set(strings.TrimPrefix(arg, "--android-reload-command=")); err != nil {
+				return devOptions{}, err
+			}
+		case arg == "--ios-reload-command":
+			value, next, err := devFlagValue(args, i, "ios-reload-command")
+			if err != nil {
+				return devOptions{}, err
+			}
+			if err := opts.iosReload.Set(value); err != nil {
+				return devOptions{}, err
+			}
+			i = next
+		case strings.HasPrefix(arg, "--ios-reload-command="):
+			if err := opts.iosReload.Set(strings.TrimPrefix(arg, "--ios-reload-command=")); err != nil {
+				return devOptions{}, err
+			}
 		case arg == "--adb":
 			value, next, err := devFlagValue(args, i, "adb")
 			if err != nil {
@@ -263,7 +327,10 @@ func runDevCycle(ctx context.Context, opts devOptions) error {
 	if err := runDevBuild(ctx, opts, buildArgs); err != nil {
 		return err
 	}
-	return runDevDeviceActions(ctx, opts, buildArgs)
+	if err := runDevDeviceActions(ctx, opts, buildArgs); err != nil {
+		return err
+	}
+	return runDevReloadTriggers(ctx, opts, buildArgs)
 }
 
 func runDevBuild(ctx context.Context, opts devOptions, buildArgs []string) error {
@@ -318,6 +385,64 @@ func runDevDeviceActions(ctx context.Context, opts devOptions, buildArgs []strin
 		}
 	}
 	return nil
+}
+
+func runDevReloadTriggers(ctx context.Context, opts devOptions, buildArgs []string) error {
+	if opts.reloadStamp != "" {
+		if err := writeDevReloadStamp(opts, buildArgs); err != nil {
+			return err
+		}
+	}
+	commands := devReloadCommands(opts)
+	if len(commands) == 0 {
+		return nil
+	}
+	dir, err := devWatchRoot(opts)
+	if err != nil {
+		return err
+	}
+	for _, command := range commands {
+		if err := buildRunner.Run(ctx, dir, "sh", "-c", command); err != nil {
+			return fmt.Errorf("dev reload command %q: %w", command, err)
+		}
+	}
+	return nil
+}
+
+func writeDevReloadStamp(opts devOptions, buildArgs []string) error {
+	codegenOnly := !opts.build || hasBuildFlag(buildArgs, "codegen-only")
+	stamp := devReloadStamp{
+		Version:     1,
+		Target:      opts.target,
+		CompletedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		NativeBuild: !codegenOnly,
+		CodegenOnly: codegenOnly,
+		Install:     opts.install,
+		Launch:      opts.launch,
+		BuildArgs:   append([]string(nil), buildArgs...),
+	}
+	data, err := json.MarshalIndent(stamp, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := opts.reloadStamp
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
+func devReloadCommands(opts devOptions) []string {
+	commands := append([]string(nil), opts.reloadCommands...)
+	for _, tgt := range devDeviceTargets(opts.target) {
+		switch tgt {
+		case target.Android:
+			commands = append(commands, opts.androidReload...)
+		case target.IOS:
+			commands = append(commands, opts.iosReload...)
+		}
+	}
+	return commands
 }
 
 func runAndroidDeviceActions(ctx context.Context, opts devOptions, cfg nativeBuild) error {

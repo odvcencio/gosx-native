@@ -24,6 +24,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative build all --release --artifact-manifest build/gsxnative-artifacts.json")
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative build all --release --publish-dir build/artifacts")
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative devices --json")
+	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative dev all --reload-stamp .gsxnative/reload.json")
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative dev android --launch --device emulator-5554")
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative dev ios --launch --ios-bundle-id com.example.SampleApp")
 	assertFileContains(t, filepath.Join(dir, "README.md"), ".gsxnative/signing.json")

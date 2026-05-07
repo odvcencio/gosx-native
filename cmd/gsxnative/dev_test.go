@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,12 +39,15 @@ func TestDevOnceRegeneratesSourceOnly(t *testing.T) {
 }
 
 func TestParseDevOptionsSupportsTargetFlag(t *testing.T) {
-	opts, err := parseDevOptions([]string{"--target=ios", "--once", "--build", "--launch", "--device=booted", "--interval=25ms", "--source", "src/app.gsx"})
+	opts, err := parseDevOptions([]string{"--target=ios", "--once", "--build", "--launch", "--device=booted", "--interval=25ms", "--reload-stamp=.gsxnative/reload.json", "--reload-command", "./reload.sh", "--ios-reload-command=./reload-ios.sh", "--source", "src/app.gsx"})
 	if err != nil {
 		t.Fatalf("parse dev options: %v", err)
 	}
 	if opts.target != "ios" || !opts.once || !opts.build || !opts.install || !opts.launch || opts.device != "booted" || opts.interval != 25*time.Millisecond {
 		t.Fatalf("unexpected options: %#v", opts)
+	}
+	if opts.reloadStamp != ".gsxnative/reload.json" || strings.Join(opts.reloadCommands, " ") != "./reload.sh" || strings.Join(opts.iosReload, " ") != "./reload-ios.sh" {
+		t.Fatalf("unexpected reload options: %#v", opts)
 	}
 	if got := strings.Join(opts.buildArgs, " "); got != "--source src/app.gsx" {
 		t.Fatalf("unexpected forwarded build args: %q", got)
@@ -79,6 +83,101 @@ func TestDevBuildModeRunsNativeTools(t *testing.T) {
 	}
 	if joinedArgs := strings.Join(fake.commands[1].args, " "); !strings.Contains(joinedArgs, "platform=iOS Simulator,name=iPhone 16") {
 		t.Fatalf("expected simulator destination to reach xcodebuild, got %q", joinedArgs)
+	}
+}
+
+func TestDevReloadStampWritesAfterSuccessfulCycle(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	stampPath := filepath.Join(t.TempDir(), ".gsxnative", "reload.json")
+	err = runDev([]string{
+		"android",
+		"--once",
+		"--reload-stamp", stampPath,
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("dev reload stamp: %v", err)
+	}
+	if len(fake.commands) != 0 {
+		t.Fatalf("expected reload stamp to skip native tools, got %#v", fake.commands)
+	}
+	data, err := os.ReadFile(stampPath)
+	if err != nil {
+		t.Fatalf("read reload stamp: %v", err)
+	}
+	var stamp devReloadStamp
+	if err := json.Unmarshal(data, &stamp); err != nil {
+		t.Fatalf("parse reload stamp: %v", err)
+	}
+	if stamp.Version != 1 || stamp.Target != "android" || stamp.NativeBuild || !stamp.CodegenOnly || stamp.Install || stamp.Launch {
+		t.Fatalf("unexpected reload stamp: %#v", stamp)
+	}
+	if stamp.CompletedAt == "" {
+		t.Fatalf("expected completed_at in reload stamp")
+	}
+	if got := strings.Join(stamp.BuildArgs, " "); !strings.Contains(got, "--source") || !strings.Contains(got, "counter.gsx") {
+		t.Fatalf("expected build args in reload stamp, got %q", got)
+	}
+}
+
+func TestDevReloadStampReportsForwardedCodegenOnly(t *testing.T) {
+	stampPath := filepath.Join(t.TempDir(), "reload.json")
+	err := writeDevReloadStamp(devOptions{target: "ios", build: true, reloadStamp: stampPath}, []string{"--codegen-only"})
+	if err != nil {
+		t.Fatalf("write reload stamp: %v", err)
+	}
+	data, err := os.ReadFile(stampPath)
+	if err != nil {
+		t.Fatalf("read reload stamp: %v", err)
+	}
+	var stamp devReloadStamp
+	if err := json.Unmarshal(data, &stamp); err != nil {
+		t.Fatalf("parse reload stamp: %v", err)
+	}
+	if !stamp.CodegenOnly || stamp.NativeBuild {
+		t.Fatalf("expected forwarded codegen-only to suppress native build metadata, got %#v", stamp)
+	}
+}
+
+func TestDevReloadCommandsRunAfterSuccessfulBuild(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	err = runDev([]string{
+		"android",
+		"--once",
+		"--build",
+		"--reload-command", "printf generic",
+		"--android-reload-command", "printf android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", t.TempDir(),
+		"--task", ":app:compileDebugKotlin",
+	})
+	if err != nil {
+		t.Fatalf("dev reload commands: %v", err)
+	}
+	if len(fake.commands) != 3 {
+		t.Fatalf("expected Gradle and two reload commands, got %#v", fake.commands)
+	}
+	if fake.commands[0].name != "gradle" || fake.commands[1].name != "sh" || fake.commands[2].name != "sh" {
+		t.Fatalf("unexpected command sequence: %#v", fake.commands)
+	}
+	if got := strings.Join(fake.commands[1].args, " "); got != "-c printf generic" {
+		t.Fatalf("unexpected generic reload command: %q", got)
+	}
+	if got := strings.Join(fake.commands[2].args, " "); got != "-c printf android" {
+		t.Fatalf("unexpected android reload command: %q", got)
 	}
 }
 
