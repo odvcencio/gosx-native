@@ -333,7 +333,11 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 	if err := target.Validate(mod, tgt); err != nil {
 		return err
 	}
-	if err := validateProjectDeclarations(opts.projectConfig, mod); err != nil {
+	projectConfig, err := effectiveProjectConfigForSource(opts.projectConfig, cfg.source)
+	if err != nil {
+		return err
+	}
+	if err := validateProjectDeclarations(projectConfig, mod); err != nil {
 		return err
 	}
 	source, err := emitNativeSource(tgt, mod)
@@ -346,8 +350,8 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 	if err := os.WriteFile(cfg.output, source, 0644); err != nil {
 		return err
 	}
-	if cfg.supportOutput != "" && cfg.projectConfig != nil {
-		support, err := emitDeclarationSupport(tgt, cfg.projectConfig)
+	if cfg.supportOutput != "" && projectConfig != nil {
+		support, err := emitDeclarationSupport(tgt, projectConfig)
 		if err != nil {
 			return err
 		}

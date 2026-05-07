@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -12,6 +14,12 @@ import (
 	"github.com/odvcencio/gosx-native/target"
 	"github.com/odvcencio/gosx/nir"
 )
+
+type sourceDeclarations struct {
+	Routes      []routeDeclaration
+	DataLoaders []endpointDeclaration
+	Actions     []endpointDeclaration
+}
 
 func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
 	if cfg == nil {
@@ -49,6 +57,218 @@ func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
 		return err
 	}
 	return validateEndpoints("action", cfg.Actions)
+}
+
+func effectiveProjectConfigForSource(cfg *projectConfig, sourcePath string) (*projectConfig, error) {
+	sourceDecls, err := parseSourceDeclarationsFile(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil && !sourceDecls.hasAny() {
+		return nil, nil
+	}
+	effective := cloneProjectConfig(cfg)
+	if sourceDecls.hasRoutes() {
+		effective.Routes = sourceDecls.Routes
+	}
+	if sourceDecls.hasDataLoaders() {
+		effective.DataLoaders = sourceDecls.DataLoaders
+	}
+	if sourceDecls.hasActions() {
+		effective.Actions = sourceDecls.Actions
+	}
+	return effective, nil
+}
+
+func cloneProjectConfig(cfg *projectConfig) *projectConfig {
+	if cfg == nil {
+		return &projectConfig{}
+	}
+	clone := *cfg
+	clone.Routes = append([]routeDeclaration(nil), cfg.Routes...)
+	clone.DataLoaders = append([]endpointDeclaration(nil), cfg.DataLoaders...)
+	clone.Actions = append([]endpointDeclaration(nil), cfg.Actions...)
+	return &clone
+}
+
+func (d sourceDeclarations) hasAny() bool {
+	return d.hasRoutes() || d.hasDataLoaders() || d.hasActions()
+}
+
+func (d sourceDeclarations) hasRoutes() bool {
+	return len(d.Routes) > 0
+}
+
+func (d sourceDeclarations) hasDataLoaders() bool {
+	return len(d.DataLoaders) > 0
+}
+
+func (d sourceDeclarations) hasActions() bool {
+	return len(d.Actions) > 0
+}
+
+func parseSourceDeclarationsFile(path string) (sourceDeclarations, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return sourceDeclarations{}, fmt.Errorf("read source declarations %s: %w", path, err)
+	}
+	decls, err := parseSourceDeclarations(data)
+	if err != nil {
+		return sourceDeclarations{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return decls, nil
+}
+
+func parseSourceDeclarations(src []byte) (sourceDeclarations, error) {
+	var decls sourceDeclarations
+	scanner := bufio.NewScanner(bytes.NewReader(src))
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "//gosx:") {
+			continue
+		}
+		kind, fields, err := parseSourceDeclaration(line)
+		if err != nil {
+			return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		switch kind {
+		case "route":
+			route, err := sourceRouteDeclaration(fields)
+			if err != nil {
+				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			decls.Routes = append(decls.Routes, route)
+		case "data":
+			endpoint, err := sourceEndpointDeclaration("data", fields)
+			if err != nil {
+				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			decls.DataLoaders = append(decls.DataLoaders, endpoint)
+		case "action":
+			endpoint, err := sourceEndpointDeclaration("action", fields)
+			if err != nil {
+				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			decls.Actions = append(decls.Actions, endpoint)
+		default:
+			continue
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return sourceDeclarations{}, err
+	}
+	return decls, nil
+}
+
+func parseSourceDeclaration(line string) (string, map[string][]string, error) {
+	body := strings.TrimSpace(strings.TrimPrefix(line, "//gosx:"))
+	pieces := strings.Fields(body)
+	if len(pieces) == 0 {
+		return "", nil, fmt.Errorf("empty gosx declaration")
+	}
+	kind := strings.ToLower(pieces[0])
+	if kind != "route" && kind != "data" && kind != "action" {
+		return kind, nil, nil
+	}
+	fields := make(map[string][]string, len(pieces)-1)
+	for _, piece := range pieces[1:] {
+		name, value, ok := strings.Cut(piece, "=")
+		if !ok || strings.TrimSpace(name) == "" {
+			return "", nil, fmt.Errorf("declaration field %q must use key=value", piece)
+		}
+		name = strings.ToLower(strings.TrimSpace(name))
+		fields[name] = append(fields[name], strings.TrimSpace(value))
+	}
+	return kind, fields, nil
+}
+
+func sourceRouteDeclaration(fields map[string][]string) (routeDeclaration, error) {
+	if err := requireDeclarationFields("route", fields, "name", "path", "component"); err != nil {
+		return routeDeclaration{}, err
+	}
+	if err := rejectUnknownDeclarationFields("route", fields, "name", "path", "component", "params", "param"); err != nil {
+		return routeDeclaration{}, err
+	}
+	params, err := parseSourceParams(append(fields["params"], fields["param"]...))
+	if err != nil {
+		return routeDeclaration{}, err
+	}
+	return routeDeclaration{
+		Name:      firstField(fields, "name"),
+		Path:      firstField(fields, "path"),
+		Component: firstField(fields, "component"),
+		Params:    params,
+	}, nil
+}
+
+func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpointDeclaration, error) {
+	if err := requireDeclarationFields(kind, fields, "name", "method", "path"); err != nil {
+		return endpointDeclaration{}, err
+	}
+	if err := rejectUnknownDeclarationFields(kind, fields, "name", "method", "path"); err != nil {
+		return endpointDeclaration{}, err
+	}
+	return endpointDeclaration{
+		Name:   firstField(fields, "name"),
+		Method: firstField(fields, "method"),
+		Path:   firstField(fields, "path"),
+	}, nil
+}
+
+func requireDeclarationFields(kind string, fields map[string][]string, required ...string) error {
+	for _, name := range required {
+		if firstField(fields, name) == "" {
+			return fmt.Errorf("%s declaration missing %s", kind, name)
+		}
+	}
+	return nil
+}
+
+func rejectUnknownDeclarationFields(kind string, fields map[string][]string, allowed ...string) error {
+	known := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		known[name] = true
+	}
+	for name := range fields {
+		if !known[name] {
+			return fmt.Errorf("%s declaration has unknown field %s", kind, name)
+		}
+	}
+	return nil
+}
+
+func firstField(fields map[string][]string, name string) string {
+	values := fields[name]
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func parseSourceParams(values []string) ([]paramDeclaration, error) {
+	var params []paramDeclaration
+	for _, value := range values {
+		for _, piece := range strings.Split(value, ",") {
+			piece = strings.TrimSpace(piece)
+			if piece == "" {
+				continue
+			}
+			name, typ, ok := strings.Cut(piece, ":")
+			if !ok {
+				name = piece
+				typ = "string"
+			}
+			name = strings.TrimSpace(name)
+			typ = strings.TrimSpace(typ)
+			if typ == "" {
+				typ = "string"
+			}
+			params = append(params, paramDeclaration{Name: name, Type: typ})
+		}
+	}
+	return params, nil
 }
 
 func validateEndpoints(kind string, endpoints []endpointDeclaration) error {

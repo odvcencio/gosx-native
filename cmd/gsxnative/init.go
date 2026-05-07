@@ -160,11 +160,15 @@ func scaffoldProject(opts initOptions) error {
 		return err
 	}
 	projectCfg := initProjectConfig(opts, sourcePath, iosDir, iosOutput, iosSupportOutput, androidDir, androidOutput, androidSupportOutput)
-	swiftDeclarations, err := emitDeclarationSupport(target.IOS, &projectCfg)
+	sourceProjectCfg, err := effectiveProjectConfigForSource(&projectCfg, sourcePath)
 	if err != nil {
 		return err
 	}
-	kotlinDeclarations, err := emitDeclarationSupport(target.Android, &projectCfg)
+	swiftDeclarations, err := emitDeclarationSupport(target.IOS, sourceProjectCfg)
+	if err != nil {
+		return err
+	}
+	kotlinDeclarations, err := emitDeclarationSupport(target.Android, sourceProjectCfg)
 	if err != nil {
 		return err
 	}
@@ -227,6 +231,11 @@ func writeInitFile(path, data string, force bool) error {
 func initGoSXSource(pkg string) string {
 	return fmt.Sprintf(`package %s
 
+//gosx:route name=home path=/ component=Home
+//gosx:route name=details path=/details/:id component=Home params=id:string
+//gosx:data name=loadGreeting method=GET path=/api/greeting
+//gosx:action name=submitGreeting method=POST path=/api/greeting
+
 type HomeProps struct {
 	Title string
 }
@@ -280,16 +289,6 @@ func initProjectConfig(opts initOptions, sourcePath, iosDir, iosOutput, iosSuppo
 			Project:       relSlash(opts.dir, androidDir),
 			Output:        relSlash(opts.dir, androidOutput),
 			SupportOutput: relSlash(opts.dir, androidSupportOutput),
-		},
-		Routes: []routeDeclaration{
-			{Name: "home", Path: "/", Component: "Home"},
-			{Name: "details", Path: "/details/:id", Component: "Home", Params: []paramDeclaration{{Name: "id", Type: "string"}}},
-		},
-		DataLoaders: []endpointDeclaration{
-			{Name: "loadGreeting", Method: "GET", Path: "/api/greeting"},
-		},
-		Actions: []endpointDeclaration{
-			{Name: "submitGreeting", Method: "POST", Path: "/api/greeting"},
 		},
 	}
 }

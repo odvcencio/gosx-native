@@ -15,6 +15,8 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	}
 
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "func Home(props HomeProps) Node")
+	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:route name=home path=/ component=Home")
+	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:data name=loadGreeting method=GET path=/api/greeting")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "GSXRouter(initial: GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/App.g.swift"), "public struct Home: GSXComponent")
@@ -37,7 +39,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 		t.Fatalf("parse config: %v", err)
 	}
 	if cfg.Source != "src/app.gsx" || cfg.IOS.SupportOutput == "" || cfg.Android.SupportOutput == "" ||
-		len(cfg.Routes) != 2 || len(cfg.DataLoaders) != 1 || len(cfg.Actions) != 1 {
+		len(cfg.Routes) != 0 || len(cfg.DataLoaders) != 0 || len(cfg.Actions) != 0 {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 }
@@ -125,32 +127,24 @@ func TestBuildIOSUsesDiscoveredProjectConfig(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public final class GSXGeneratedActionClient")
 }
 
-func TestBuildValidatesRouteComponents(t *testing.T) {
+func TestBuildValidatesSourceRouteComponents(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	dir := filepath.Join(t.TempDir(), "sample-app")
 	if err := runInit([]string{"--name", "SampleApp", "--module", "com.example.sample", dir}); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 
-	configPath := filepath.Join(dir, "gosxnative.json")
-	data, err := os.ReadFile(configPath)
+	sourcePath := filepath.Join(dir, "src/app.gsx")
+	data, err := os.ReadFile(sourcePath)
 	if err != nil {
-		t.Fatalf("read config: %v", err)
+		t.Fatalf("read source: %v", err)
 	}
-	var cfg projectConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	cfg.Routes[0].Component = "Missing"
-	updated, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal config: %v", err)
-	}
-	if err := os.WriteFile(configPath, append(updated, '\n'), 0644); err != nil {
-		t.Fatalf("write config: %v", err)
+	updated := strings.Replace(string(data), "name=home path=/ component=Home", "name=home path=/ component=Missing", 1)
+	if err := os.WriteFile(sourcePath, []byte(updated), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
 	}
 
-	err = runBuild([]string{"android", "--config", configPath})
+	err = runBuild([]string{"android", "--config", filepath.Join(dir, "gosxnative.json")})
 	if err == nil {
 		t.Fatalf("expected route validation error")
 	}
@@ -159,6 +153,76 @@ func TestBuildValidatesRouteComponents(t *testing.T) {
 	}
 	if len(fake.commands) != 0 {
 		t.Fatalf("expected no native build commands, got %#v", fake.commands)
+	}
+}
+
+func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
+	useFakeBuildRunner(t)
+	dir := filepath.Join(t.TempDir(), "sample-app")
+	if err := runInit([]string{"--name", "SampleApp", "--module", "com.example.sample", dir}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	sourcePath := filepath.Join(dir, "src/app.gsx")
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//gosx:route") ||
+			strings.HasPrefix(strings.TrimSpace(line), "//gosx:data") ||
+			strings.HasPrefix(strings.TrimSpace(line), "//gosx:action") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := os.WriteFile(sourcePath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	configPath := filepath.Join(dir, "gosxnative.json")
+	data, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var cfg projectConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.Routes = []routeDeclaration{{Name: "legacyHome", Path: "/", Component: "Home"}}
+	cfg.DataLoaders = []endpointDeclaration{{Name: "legacyLoad", Method: "GET", Path: "/api/legacy"}}
+	updated, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, append(updated, '\n'), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := runBuild([]string{"ios", "--config", configPath}); err != nil {
+		t.Fatalf("build from config declarations: %v", err)
+	}
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXGeneratedRouteSpec(name: "legacyHome"`)
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func legacyLoad() async throws -> GSXResponse")
+}
+
+func TestParseSourceDeclarations(t *testing.T) {
+	decls, err := parseSourceDeclarations([]byte(`
+//gosx:route name=home path=/ component=Home
+//gosx:route name=details path=/details/:id component=Home params=id:string,count:int
+//gosx:data name=loadGreeting method=GET path=/api/greeting
+//gosx:action name=submitGreeting method=POST path=/api/greeting
+//gosx:native swift
+`))
+	if err != nil {
+		t.Fatalf("parse source declarations: %v", err)
+	}
+	if len(decls.Routes) != 2 || len(decls.DataLoaders) != 1 || len(decls.Actions) != 1 {
+		t.Fatalf("unexpected declarations: %#v", decls)
+	}
+	if got := decls.Routes[1].Params; len(got) != 2 || got[0].Name != "id" || got[1].Type != "int" {
+		t.Fatalf("unexpected params: %#v", got)
 	}
 }
 
