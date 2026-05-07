@@ -409,7 +409,28 @@ func initSwiftBridgeServices(cfg *projectConfig) string {
 		fmt.Fprintln(&buf)
 		fmt.Fprintf(&buf, "final class %sBridge: GSXBridgeService {\n", pascalIdentifier(service, "Bridge"))
 		fmt.Fprintf(&buf, "    let service = %s\n", strconv.Quote(service))
-		for _, bridge := range bridgesForService(cfg.Bridges, service) {
+		bridges := bridgesForService(cfg.Bridges, service)
+		fmt.Fprintln(&buf)
+		fmt.Fprintln(&buf, "    func dispatch(_ envelope: GSXBridgeEnvelope) async throws -> GSXBridgeResult {")
+		fmt.Fprintln(&buf, "        switch envelope.method {")
+		for _, bridge := range bridges {
+			fmt.Fprintf(&buf, "        case %s:\n", strconv.Quote(bridge.Method))
+			if len(bridge.Input) > 0 {
+				fmt.Fprintf(&buf, "            let input = try envelope.decodedPayload(%s.self)\n", swiftBridgeModelName(bridge, "Input"))
+			}
+			if len(bridge.Output) > 0 {
+				fmt.Fprintf(&buf, "            let output = try await %s(%s)\n", swiftIdentifier(bridge.Method), swiftServiceMethodArgs(bridge.Input))
+				fmt.Fprintln(&buf, "            return try GSXBridgeResult(id: envelope.id, body: output)")
+			} else {
+				fmt.Fprintf(&buf, "            let response = try await %s(%s)\n", swiftIdentifier(bridge.Method), swiftServiceMethodArgs(bridge.Input))
+				fmt.Fprintln(&buf, "            return GSXBridgeResult(id: envelope.id, payload: response.body)")
+			}
+		}
+		fmt.Fprintln(&buf, "        default:")
+		fmt.Fprintln(&buf, "            throw GSXBridgeDispatchError.methodNotFound(service: service, method: envelope.method)")
+		fmt.Fprintln(&buf, "        }")
+		fmt.Fprintln(&buf, "    }")
+		for _, bridge := range bridges {
 			resultType := "GSXResponse"
 			if len(bridge.Output) > 0 {
 				resultType = swiftBridgeModelName(bridge, "Response")
@@ -532,6 +553,9 @@ func initAndroidBridgeServices(module string, cfg *projectConfig) string {
 	fmt.Fprintf(&buf, "package %s\n", module)
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeService")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeDispatchException")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeEnvelope")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeResult")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityChecker")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityProvider")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityReport")
@@ -552,7 +576,26 @@ func initAndroidBridgeServices(module string, cfg *projectConfig) string {
 		fmt.Fprintln(&buf)
 		fmt.Fprintf(&buf, "class %sBridge : GSXBridgeService {\n", pascalIdentifier(service, "Bridge"))
 		fmt.Fprintf(&buf, "    override val service: String = %s\n", strconv.Quote(service))
-		for _, bridge := range bridgesForService(cfg.Bridges, service) {
+		bridges := bridgesForService(cfg.Bridges, service)
+		fmt.Fprintln(&buf)
+		fmt.Fprintln(&buf, "    override suspend fun dispatch(envelope: GSXBridgeEnvelope): GSXBridgeResult = when (envelope.method) {")
+		for _, bridge := range bridges {
+			fmt.Fprintf(&buf, "        %s -> {\n", strconv.Quote(bridge.Method))
+			if len(bridge.Input) > 0 {
+				fmt.Fprintf(&buf, "            val input = %s.fromJSON(envelope.payload.orEmpty())\n", kotlinBridgeModelName(bridge, "Input"))
+			}
+			if len(bridge.Output) > 0 {
+				fmt.Fprintf(&buf, "            val output = %s(%s)\n", kotlinIdentifier(bridge.Method), kotlinServiceMethodArgs(bridge.Input))
+				fmt.Fprintln(&buf, "            GSXBridgeResult(payload = output.toJSON(), id = envelope.id)")
+			} else {
+				fmt.Fprintf(&buf, "            val response = %s(%s)\n", kotlinIdentifier(bridge.Method), kotlinServiceMethodArgs(bridge.Input))
+				fmt.Fprintln(&buf, "            GSXBridgeResult(payload = response.text(), id = envelope.id)")
+			}
+			fmt.Fprintln(&buf, "        }")
+		}
+		fmt.Fprintln(&buf, "        else -> throw GSXBridgeDispatchException.methodNotFound(service, envelope.method)")
+		fmt.Fprintln(&buf, "    }")
+		for _, bridge := range bridges {
 			resultType := "GSXResponse"
 			if len(bridge.Output) > 0 {
 				resultType = kotlinBridgeModelName(bridge, "Response")
@@ -652,6 +695,24 @@ func bridgesForService(bridges []bridgeDeclaration, service string) []bridgeDecl
 		return filtered[i].Method < filtered[j].Method
 	})
 	return filtered
+}
+
+func swiftServiceMethodArgs(fields []paramDeclaration) string {
+	args := make([]string, 0, len(fields))
+	for _, field := range fields {
+		name := swiftIdentifier(field.Name)
+		args = append(args, fmt.Sprintf("%s: input.%s", name, name))
+	}
+	return strings.Join(args, ", ")
+}
+
+func kotlinServiceMethodArgs(fields []paramDeclaration) string {
+	args := make([]string, 0, len(fields))
+	for _, field := range fields {
+		name := kotlinIdentifier(field.Name)
+		args = append(args, fmt.Sprintf("%s = input.%s", name, name))
+	}
+	return strings.Join(args, ", ")
 }
 
 func swiftStringSet(values []string) string {

@@ -1280,13 +1280,9 @@ func emitKotlinEndpointInputModel(buf *bytes.Buffer, name string, fields []param
 		fmt.Fprintf(buf, "    val %s: %s,\n", kotlinIdentifier(field.Name), kotlinTypeForDecl(field.Type))
 	}
 	fmt.Fprintln(buf, ") {")
-	fmt.Fprintln(buf, "    fun toJSON(): String {")
-	fmt.Fprintln(buf, "        val objectValue = JSONObject()")
-	for _, field := range fields {
-		fmt.Fprintf(buf, "        objectValue.put(%s, %s)\n", strconv.Quote(field.Name), kotlinIdentifier(field.Name))
-	}
-	fmt.Fprintln(buf, "        return objectValue.toString()")
-	fmt.Fprintln(buf, "    }")
+	emitKotlinModelToJSON(buf, fields)
+	fmt.Fprintln(buf)
+	emitKotlinModelFromJSON(buf, name, fields)
 	fmt.Fprintln(buf, "}")
 }
 
@@ -1296,6 +1292,23 @@ func emitKotlinEndpointOutputModel(buf *bytes.Buffer, name string, fields []para
 		fmt.Fprintf(buf, "    val %s: %s,\n", kotlinIdentifier(field.Name), kotlinTypeForDecl(field.Type))
 	}
 	fmt.Fprintln(buf, ") {")
+	emitKotlinModelToJSON(buf, fields)
+	fmt.Fprintln(buf)
+	emitKotlinModelFromJSON(buf, name, fields)
+	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinModelToJSON(buf *bytes.Buffer, fields []paramDeclaration) {
+	fmt.Fprintln(buf, "    fun toJSON(): String {")
+	fmt.Fprintln(buf, "        val objectValue = JSONObject()")
+	for _, field := range fields {
+		fmt.Fprintf(buf, "        objectValue.put(%s, %s)\n", strconv.Quote(field.Name), kotlinIdentifier(field.Name))
+	}
+	fmt.Fprintln(buf, "        return objectValue.toString()")
+	fmt.Fprintln(buf, "    }")
+}
+
+func emitKotlinModelFromJSON(buf *bytes.Buffer, name string, fields []paramDeclaration) {
 	fmt.Fprintln(buf, "    companion object {")
 	fmt.Fprintln(buf, "        fun fromJSON(json: String): "+name+" {")
 	fmt.Fprintln(buf, "            val objectValue = JSONObject(json)")
@@ -1306,7 +1319,6 @@ func emitKotlinEndpointOutputModel(buf *bytes.Buffer, name string, fields []para
 	fmt.Fprintln(buf, "            )")
 	fmt.Fprintln(buf, "        }")
 	fmt.Fprintln(buf, "    }")
-	fmt.Fprintln(buf, "}")
 }
 
 func emitKotlinEndpointRequest(buf *bytes.Buffer, className string, endpoint endpointDeclaration, defaultMethod string) {

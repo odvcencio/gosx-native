@@ -142,8 +142,39 @@ class GSXBridgeClient(
     ): GSXResponse = dataClient.submit(request, policy = policy)
 }
 
+data class GSXBridgeEnvelope(
+    val service: String,
+    val method: String,
+    val payload: String? = null,
+    val id: String? = null,
+) {
+    companion object {
+        fun json(service: String, method: String, json: String, id: String? = null): GSXBridgeEnvelope =
+            GSXBridgeEnvelope(service = service, method = method, payload = json, id = id)
+    }
+}
+
+data class GSXBridgeResult(
+    val payload: String? = null,
+    val id: String? = null,
+)
+
+class GSXBridgeDispatchException(
+    message: String,
+) : RuntimeException(message) {
+    companion object {
+        fun serviceNotFound(service: String): GSXBridgeDispatchException =
+            GSXBridgeDispatchException("GSX bridge service is not registered: $service")
+
+        fun methodNotFound(service: String, method: String): GSXBridgeDispatchException =
+            GSXBridgeDispatchException("GSX bridge method is not registered: $service.$method")
+    }
+}
+
 interface GSXBridgeService {
     val service: String
+
+    suspend fun dispatch(envelope: GSXBridgeEnvelope): GSXBridgeResult
 }
 
 class GSXBridgeRegistry(
@@ -160,6 +191,12 @@ class GSXBridgeRegistry(
     }
 
     fun service(name: String): GSXBridgeService? = servicesByName[name]
+
+    suspend fun dispatch(envelope: GSXBridgeEnvelope): GSXBridgeResult {
+        val service = servicesByName[envelope.service]
+            ?: throw GSXBridgeDispatchException.serviceNotFound(envelope.service)
+        return service.dispatch(envelope)
+    }
 
     val registeredServices: List<String>
         get() = servicesByName.keys.sorted()

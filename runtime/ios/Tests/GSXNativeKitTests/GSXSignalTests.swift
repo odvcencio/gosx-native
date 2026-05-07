@@ -266,6 +266,35 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertNotNil(registry.service(named: "Vault"))
         XCTAssertEqual(registry.registeredServices, ["Vault", "Worker"])
     }
+
+    func testBridgeRegistryDispatchesEnvelopes() async throws {
+        let registry = GSXBridgeRegistry(services: [EchoBridgeService() as any GSXBridgeService])
+        let envelope = try GSXBridgeEnvelope(
+            service: "Vault",
+            method: "echo",
+            body: GreetingPayload(message: "hello"),
+            id: "call-1"
+        )
+
+        let result = try await registry.dispatch(envelope)
+        let decoded = try result.decodedPayload(GreetingPayload.self)
+
+        XCTAssertEqual(result.id, "call-1")
+        XCTAssertEqual(decoded, GreetingPayload(message: "hello"))
+    }
+
+    func testBridgeRegistryThrowsForMissingServices() async {
+        let registry = GSXBridgeRegistry()
+
+        do {
+            _ = try await registry.dispatch(GSXBridgeEnvelope(service: "Vault", method: "echo"))
+            XCTFail("expected missing bridge service")
+        } catch GSXBridgeDispatchError.serviceNotFound(let service) {
+            XCTAssertEqual(service, "Vault")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
 }
 
 private struct GreetingPayload: Codable, Equatable {
@@ -274,6 +303,22 @@ private struct GreetingPayload: Codable, Equatable {
 
 private struct TestBridgeService: GSXBridgeService {
     let service: String
+
+    func dispatch(_ envelope: GSXBridgeEnvelope) async throws -> GSXBridgeResult {
+        throw GSXBridgeDispatchError.methodNotFound(service: service, method: envelope.method)
+    }
+}
+
+private struct EchoBridgeService: GSXBridgeService {
+    let service = "Vault"
+
+    func dispatch(_ envelope: GSXBridgeEnvelope) async throws -> GSXBridgeResult {
+        guard envelope.method == "echo" else {
+            throw GSXBridgeDispatchError.methodNotFound(service: service, method: envelope.method)
+        }
+        let input = try envelope.decodedPayload(GreetingPayload.self)
+        return try GSXBridgeResult(id: envelope.id, body: input)
+    }
 }
 
 private final class StaticTransport: GSXTransport {

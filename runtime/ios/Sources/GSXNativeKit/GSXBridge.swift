@@ -185,8 +185,64 @@ public final class GSXBridgeClient {
     }
 }
 
+public struct GSXBridgeEnvelope: Equatable {
+    public var id: String?
+    public var service: String
+    public var method: String
+    public var payload: Data?
+
+    public init(service: String, method: String, payload: Data? = nil, id: String? = nil) {
+        self.id = id
+        self.service = service
+        self.method = method
+        self.payload = payload
+    }
+
+    public init<T: Encodable>(
+        service: String,
+        method: String,
+        body: T,
+        id: String? = nil,
+        encoder: JSONEncoder = JSONEncoder()
+    ) throws {
+        self.init(service: service, method: method, payload: try encoder.encode(body), id: id)
+    }
+
+    public func decodedPayload<T: Decodable>(_ type: T.Type = T.self, decoder: JSONDecoder = JSONDecoder()) throws -> T {
+        try decoder.decode(type, from: payload ?? Data())
+    }
+}
+
+public struct GSXBridgeResult: Equatable {
+    public var id: String?
+    public var payload: Data?
+
+    public init(id: String? = nil, payload: Data? = nil) {
+        self.id = id
+        self.payload = payload
+    }
+
+    public init<T: Encodable>(
+        id: String? = nil,
+        body: T,
+        encoder: JSONEncoder = JSONEncoder()
+    ) throws {
+        self.init(id: id, payload: try encoder.encode(body))
+    }
+
+    public func decodedPayload<T: Decodable>(_ type: T.Type = T.self, decoder: JSONDecoder = JSONDecoder()) throws -> T {
+        try decoder.decode(type, from: payload ?? Data())
+    }
+}
+
+public enum GSXBridgeDispatchError: Error, Equatable {
+    case serviceNotFound(String)
+    case methodNotFound(service: String, method: String)
+}
+
 public protocol GSXBridgeService {
     var service: String { get }
+    func dispatch(_ envelope: GSXBridgeEnvelope) async throws -> GSXBridgeResult
 }
 
 public final class GSXBridgeRegistry {
@@ -204,6 +260,13 @@ public final class GSXBridgeRegistry {
 
     public func service(named name: String) -> (any GSXBridgeService)? {
         services[name]
+    }
+
+    public func dispatch(_ envelope: GSXBridgeEnvelope) async throws -> GSXBridgeResult {
+        guard let service = services[envelope.service] else {
+            throw GSXBridgeDispatchError.serviceNotFound(envelope.service)
+        }
+        return try await service.dispatch(envelope)
     }
 
     public var registeredServices: [String] {

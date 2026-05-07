@@ -26,6 +26,8 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "struct NativeCapabilityProvider: GSXCapabilityProvider")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), `static let available: Set<String> = ["network"]`)
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "final class VaultBridge: GSXBridgeService")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "func dispatch(_ envelope: GSXBridgeEnvelope) async throws -> GSXBridgeResult")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), `let input = try envelope.decodedPayload(GSXGeneratedBridgeVaultEchoInput.self)`)
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "func echo(message: String) async throws -> GSXGeneratedBridgeVaultEchoResponse")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/App.g.swift"), "public struct Home: GSXComponent")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXRoutes")
@@ -45,6 +47,8 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "class NativeCapabilityProvider : GSXCapabilityProvider")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), `val available: Set<String> = setOf("network")`)
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "class VaultBridge : GSXBridgeService")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "override suspend fun dispatch(envelope: GSXBridgeEnvelope): GSXBridgeResult")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "val input = GSXGeneratedBridgeVaultEchoInput.fromJSON(envelope.payload.orEmpty())")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "suspend fun echo(message: String): GSXGeneratedBridgeVaultEchoResponse")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/App.kt"), "fun Home(props: HomeProps)")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXRoutes")
@@ -384,6 +388,10 @@ func TestEmitBridgeCapabilityDeclarations(t *testing.T) {
 	}
 	if !strings.Contains(kotlin, "suspend fun vaultEncrypt(plain: String): GSXGeneratedBridgeVaultEncryptResponse") {
 		t.Fatalf("expected Kotlin bridge method, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, "fun fromJSON(json: String): GSXGeneratedBridgeVaultEncryptInput") ||
+		!strings.Contains(kotlin, "fun toJSON(): String") {
+		t.Fatalf("expected Kotlin bridge models to encode and decode, got:\n%s", kotlin)
 	}
 	if !strings.Contains(kotlin, `val request = GSXRequest.json(method = "POST", path = "/api/bridge/Vault.encrypt", json = input.toJSON())`) {
 		t.Fatalf("expected Kotlin bridge JSON request, got:\n%s", kotlin)
