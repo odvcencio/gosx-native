@@ -608,6 +608,9 @@ func validateModels(models []modelDeclaration) (map[string]modelDeclaration, err
 		if len(model.Fields) == 0 {
 			return nil, fmt.Errorf("model %s must declare at least one field", model.Name)
 		}
+		seen[model.Name] = model
+	}
+	for _, model := range models {
 		fieldSeen := make(map[string]bool, len(model.Fields))
 		for _, field := range model.Fields {
 			if !identifierPattern.MatchString(field.Name) {
@@ -617,13 +620,51 @@ func validateModels(models []modelDeclaration) (map[string]modelDeclaration, err
 				return nil, fmt.Errorf("model %s has duplicate field %q", model.Name, field.Name)
 			}
 			fieldSeen[field.Name] = true
-			if !supportedModelFieldType(field.Type) {
+			if !supportedModelFieldType(field.Type, seen) {
 				return nil, fmt.Errorf("model %s field %s has unsupported type %q", model.Name, field.Name, field.Type)
 			}
 		}
-		seen[model.Name] = model
+	}
+	if err := validateModelCycles(models, seen); err != nil {
+		return nil, err
 	}
 	return seen, nil
+}
+
+func validateModelCycles(models []modelDeclaration, modelMap map[string]modelDeclaration) error {
+	visiting := make(map[string]bool, len(models))
+	visited := make(map[string]bool, len(models))
+	var visit func(name string, stack []string) error
+	visit = func(name string, stack []string) error {
+		if visiting[name] {
+			return fmt.Errorf("model declaration cycle: %s", strings.Join(append(stack, name), " -> "))
+		}
+		if visited[name] {
+			return nil
+		}
+		model, ok := modelMap[name]
+		if !ok {
+			return nil
+		}
+		visiting[name] = true
+		for _, field := range model.Fields {
+			fieldType := declarationTypeFor(field.Type)
+			if _, ok := modelMap[fieldType.Scalar]; ok {
+				if err := visit(fieldType.Scalar, append(stack, name)); err != nil {
+					return err
+				}
+			}
+		}
+		visiting[name] = false
+		visited[name] = true
+		return nil
+	}
+	for _, model := range models {
+		if err := visit(model.Name, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateEndpoints(kind string, endpoints []endpointDeclaration, models map[string]modelDeclaration) error {
@@ -808,15 +849,19 @@ func validateActionInvalidates(cfg *projectConfig) error {
 }
 
 func supportedDeclarationType(typ string, models map[string]modelDeclaration) bool {
-	if supportedPrimitiveDeclarationType(typ) {
+	typeInfo := declarationTypeFor(typ)
+	if typeInfo.Array && models == nil {
+		return false
+	}
+	if supportedPrimitiveDeclarationType(typeInfo.Scalar) {
 		return true
 	}
-	_, ok := models[strings.TrimSpace(typ)]
+	_, ok := models[typeInfo.Scalar]
 	return ok
 }
 
-func supportedModelFieldType(typ string) bool {
-	return supportedPrimitiveDeclarationType(typ)
+func supportedModelFieldType(typ string, models map[string]modelDeclaration) bool {
+	return supportedDeclarationType(typ, models)
 }
 
 func supportedPrimitiveDeclarationType(typ string) bool {
@@ -1241,6 +1286,7 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRoute")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXTokenStore")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXTransport")
+	fmt.Fprintln(&buf, "import org.json.JSONArray")
 	fmt.Fprintln(&buf, "import org.json.JSONObject")
 	fmt.Fprintln(&buf)
 	emitKotlinGeneratedSpecs(&buf)
@@ -1707,6 +1753,43 @@ func kotlinParamSpecList(params []paramDeclaration) string {
 }
 
 func normalizedDeclarationType(typ string) string {
+	typeInfo := declarationTypeFor(typ)
+	if typeInfo.Array {
+		return "[]" + typeInfo.Scalar
+	}
+	return typeInfo.Scalar
+}
+
+type declarationTypeInfo struct {
+	Scalar string
+	Array  bool
+}
+
+func declarationTypeFor(typ string) declarationTypeInfo {
+	trimmed := strings.TrimSpace(typ)
+	if trimmed == "" {
+		return declarationTypeInfo{Scalar: "string"}
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "" {
+		return declarationTypeInfo{Scalar: "string"}
+	}
+	if strings.HasPrefix(trimmed, "[]") {
+		scalar := normalizedScalarDeclarationType(strings.TrimSpace(strings.TrimPrefix(trimmed, "[]")))
+		return declarationTypeInfo{Scalar: scalar, Array: true}
+	}
+	if strings.HasSuffix(trimmed, "[]") {
+		scalar := normalizedScalarDeclarationType(strings.TrimSpace(strings.TrimSuffix(trimmed, "[]")))
+		return declarationTypeInfo{Scalar: scalar, Array: true}
+	}
+	if strings.HasPrefix(lower, "array<") && strings.HasSuffix(trimmed, ">") {
+		scalar := normalizedScalarDeclarationType(strings.TrimSpace(trimmed[len("array<") : len(trimmed)-1]))
+		return declarationTypeInfo{Scalar: scalar, Array: true}
+	}
+	return declarationTypeInfo{Scalar: normalizedScalarDeclarationType(trimmed)}
+}
+
+func normalizedScalarDeclarationType(typ string) string {
 	trimmed := strings.TrimSpace(typ)
 	lower := strings.ToLower(trimmed)
 	if lower == "" {
@@ -1971,23 +2054,53 @@ func kotlinBridgeRequestPolicy(bridge bridgeDeclaration) string {
 
 func kotlinJSONGetter(field paramDeclaration) string {
 	name := strconv.Quote(field.Name)
-	switch strings.ToLower(strings.TrimSpace(field.Type)) {
+	typeInfo := declarationTypeFor(field.Type)
+	if typeInfo.Array {
+		return "objectValue.getJSONArray(" + name + ").let { arrayValue -> List(arrayValue.length()) { index -> " + kotlinJSONArrayElementGetter("arrayValue", "index", typeInfo.Scalar) + " } }"
+	}
+	return kotlinJSONObjectGetter("objectValue", name, typeInfo.Scalar)
+}
+
+func kotlinJSONObjectGetter(objectName, name, typ string) string {
+	switch strings.ToLower(strings.TrimSpace(typ)) {
 	case "int":
-		return "objectValue.getInt(" + name + ")"
+		return objectName + ".getInt(" + name + ")"
 	case "double", "float":
-		return "objectValue.getDouble(" + name + ")"
+		return objectName + ".getDouble(" + name + ")"
 	case "bool", "boolean":
-		return "objectValue.getBoolean(" + name + ")"
+		return objectName + ".getBoolean(" + name + ")"
 	case "", "string":
-		return "objectValue.getString(" + name + ")"
+		return objectName + ".getString(" + name + ")"
 	default:
-		return modelTypeName(field.Type) + ".fromJSON(objectValue.getJSONObject(" + name + ").toString())"
+		return modelTypeName(typ) + ".fromJSON(" + objectName + ".getJSONObject(" + name + ").toString())"
+	}
+}
+
+func kotlinJSONArrayElementGetter(arrayName, indexName, typ string) string {
+	switch strings.ToLower(strings.TrimSpace(typ)) {
+	case "int":
+		return arrayName + ".getInt(" + indexName + ")"
+	case "double", "float":
+		return arrayName + ".getDouble(" + indexName + ")"
+	case "bool", "boolean":
+		return arrayName + ".getBoolean(" + indexName + ")"
+	case "", "string":
+		return arrayName + ".getString(" + indexName + ")"
+	default:
+		return modelTypeName(typ) + ".fromJSON(" + arrayName + ".getJSONObject(" + indexName + ").toString())"
 	}
 }
 
 func kotlinJSONValue(field paramDeclaration) string {
 	name := kotlinIdentifier(field.Name)
-	switch strings.ToLower(strings.TrimSpace(field.Type)) {
+	typeInfo := declarationTypeFor(field.Type)
+	if typeInfo.Array {
+		if supportedPrimitiveDeclarationType(typeInfo.Scalar) {
+			return "JSONArray(" + name + ")"
+		}
+		return "JSONArray(" + name + ".map { JSONObject(it.toJSON()) })"
+	}
+	switch strings.ToLower(strings.TrimSpace(typeInfo.Scalar)) {
 	case "", "string", "int", "double", "float", "bool", "boolean":
 		return name
 	default:
@@ -2012,6 +2125,15 @@ func kotlinStringValue(name, typ string) string {
 }
 
 func swiftTypeForDecl(typ string) string {
+	typeInfo := declarationTypeFor(typ)
+	scalar := swiftScalarTypeForDecl(typeInfo.Scalar)
+	if typeInfo.Array {
+		return "[" + scalar + "]"
+	}
+	return scalar
+}
+
+func swiftScalarTypeForDecl(typ string) string {
 	switch strings.ToLower(strings.TrimSpace(typ)) {
 	case "int":
 		return "Int"
@@ -2027,6 +2149,15 @@ func swiftTypeForDecl(typ string) string {
 }
 
 func kotlinTypeForDecl(typ string) string {
+	typeInfo := declarationTypeFor(typ)
+	scalar := kotlinScalarTypeForDecl(typeInfo.Scalar)
+	if typeInfo.Array {
+		return "List<" + scalar + ">"
+	}
+	return scalar
+}
+
+func kotlinScalarTypeForDecl(typ string) string {
 	switch strings.ToLower(strings.TrimSpace(typ)) {
 	case "int":
 		return "Int"
