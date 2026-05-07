@@ -173,6 +173,75 @@ func TestBuildAndroidReleaseEnvFlavorWritesManifest(t *testing.T) {
 	}
 }
 
+func TestBuildAndroidReleaseSigningConfigWritesRedactedManifest(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingDir := t.TempDir()
+	signingPath := filepath.Join(signingDir, "signing.json")
+	if err := os.WriteFile(signingPath, []byte(`{
+  "android": {
+    "store_file": "release.jks",
+    "store_password_env": "GSX_STORE_PASSWORD",
+    "key_alias": "upload",
+    "key_password_env": "GSX_KEY_PASSWORD"
+  }
+}
+`), 0644); err != nil {
+		t.Fatalf("write signing config: %v", err)
+	}
+	t.Setenv("GSX_STORE_PASSWORD", "store-secret")
+	t.Setenv("GSX_KEY_PASSWORD", "key-secret")
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--release",
+		"--signing-config", signingPath,
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+	joinedArgs := strings.Join(fake.commands[0].args, " ")
+	if !strings.Contains(joinedArgs, "-PgsxSigningStoreFile="+filepath.Join(signingDir, "release.jks")) ||
+		!strings.Contains(joinedArgs, "-PgsxSigningStorePassword=store-secret") ||
+		!strings.Contains(joinedArgs, "-PgsxSigningKeyAlias=upload") ||
+		!strings.Contains(joinedArgs, "-PgsxSigningKeyPassword=key-secret") {
+		t.Fatalf("expected Android signing Gradle properties, got %q", joinedArgs)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	if strings.Contains(string(data), "store-secret") || strings.Contains(string(data), "key-secret") {
+		t.Fatalf("manifest leaked signing secrets:\n%s", data)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	target := manifest.Targets[0]
+	if !containsString(target.BuildProperties, "gsxSigningStorePassword=<redacted>") ||
+		!containsString(target.BuildProperties, "gsxSigningKeyPassword=<redacted>") {
+		t.Fatalf("expected redacted signing properties: %#v", target.BuildProperties)
+	}
+	if target.Signing == nil || target.Signing.StoreFile != filepath.Join(signingDir, "release.jks") ||
+		target.Signing.StorePasswordEnv != "GSX_STORE_PASSWORD" || target.Signing.KeyAlias != "upload" ||
+		target.Signing.KeyPasswordEnv != "GSX_KEY_PASSWORD" {
+		t.Fatalf("unexpected signing summary: %#v", target.Signing)
+	}
+}
+
 func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
@@ -239,6 +308,82 @@ func TestBuildIOSForwardsEnvironmentBuildSetting(t *testing.T) {
 	joinedArgs := strings.Join(fake.commands[1].args, " ")
 	if !strings.Contains(joinedArgs, "GSX_ENVIRONMENT=staging") {
 		t.Fatalf("expected iOS environment build setting, got %q", joinedArgs)
+	}
+}
+
+func TestBuildIOSReleaseSigningConfigForwardsXcodeSettings(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingDir := t.TempDir()
+	signingPath := filepath.Join(signingDir, "signing.json")
+	exportOptions := filepath.Join(signingDir, "ExportOptions.plist")
+	if err := os.WriteFile(signingPath, []byte(`{
+  "ios": {
+    "team_id": "ABCDE12345",
+    "bundle_id": "com.example.signed",
+    "code_sign_style": "Manual",
+    "provisioning_profile": "GSX Release",
+    "code_sign_identity": "Apple Distribution",
+    "export_options_plist": "ExportOptions.plist",
+    "allow_provisioning_updates": true
+  }
+}
+`), 0644); err != nil {
+		t.Fatalf("write signing config: %v", err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.swift")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	err = runBuild([]string{
+		"ios",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--scheme", "CounterDemo",
+		"--release",
+		"--signing-config", signingPath,
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 3 {
+		t.Fatalf("expected xcodegen, archive, and export commands, got %#v", fake.commands)
+	}
+	archiveArgs := strings.Join(fake.commands[1].args, " ")
+	for _, want := range []string{
+		"-allowProvisioningUpdates",
+		"DEVELOPMENT_TEAM=ABCDE12345",
+		"PRODUCT_BUNDLE_IDENTIFIER=com.example.signed",
+		"CODE_SIGN_STYLE=Manual",
+		"PROVISIONING_PROFILE_SPECIFIER=GSX Release",
+		"CODE_SIGN_IDENTITY=Apple Distribution",
+	} {
+		if !strings.Contains(archiveArgs, want) {
+			t.Fatalf("expected archive arg %q in %q", want, archiveArgs)
+		}
+	}
+	exportArgs := strings.Join(fake.commands[2].args, " ")
+	if !strings.Contains(exportArgs, "-exportOptionsPlist "+exportOptions) ||
+		!strings.Contains(exportArgs, "-allowProvisioningUpdates") {
+		t.Fatalf("unexpected export args: %q", exportArgs)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	target := manifest.Targets[0]
+	if target.Signing == nil || target.Signing.TeamID != "ABCDE12345" ||
+		target.Signing.BundleID != "com.example.signed" || target.Signing.ExportOptions != exportOptions ||
+		!target.Signing.AllowProvisioningUpdates {
+		t.Fatalf("unexpected iOS signing summary: %#v", target.Signing)
 	}
 }
 

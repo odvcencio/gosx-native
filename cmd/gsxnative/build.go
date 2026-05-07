@@ -53,33 +53,36 @@ func (l *stringList) Set(value string) error {
 }
 
 type buildOptions struct {
-	source           string
-	output           string
-	project          string
-	config           string
-	iosOutput        string
-	iosProject       string
-	androidOutput    string
-	androidProject   string
-	xcodeProject     string
-	scheme           string
-	simulator        string
-	configuration    string
-	archivePath      string
-	exportOptions    string
-	exportPath       string
-	artifactManifest string
-	environment      string
-	androidFlavor    string
-	schemeSet        bool
-	simulatorSet     bool
-	configurationSet bool
-	release          bool
-	codegenOnly      bool
-	gradleTasks      stringList
-	gradleProperties stringList
-	projectConfig    *projectConfig
-	projectBaseDir   string
+	source            string
+	output            string
+	project           string
+	config            string
+	iosOutput         string
+	iosProject        string
+	androidOutput     string
+	androidProject    string
+	xcodeProject      string
+	scheme            string
+	simulator         string
+	configuration     string
+	archivePath       string
+	exportOptions     string
+	exportPath        string
+	artifactManifest  string
+	signingConfig     string
+	environment       string
+	androidFlavor     string
+	schemeSet         bool
+	simulatorSet      bool
+	configurationSet  bool
+	release           bool
+	codegenOnly       bool
+	gradleTasks       stringList
+	gradleProperties  stringList
+	projectConfig     *projectConfig
+	projectBaseDir    string
+	signing           *releaseSigningConfig
+	signingConfigPath string
 }
 
 type projectConfig struct {
@@ -90,6 +93,7 @@ type projectConfig struct {
 	Android          projectTargetConfig     `json:"android"`
 	Environment      string                  `json:"environment,omitempty"`
 	ArtifactManifest string                  `json:"artifact_manifest,omitempty"`
+	SigningConfig    string                  `json:"signing_config,omitempty"`
 	Routes           []routeDeclaration      `json:"routes,omitempty"`
 	DataLoaders      []endpointDeclaration   `json:"data_loaders,omitempty"`
 	Actions          []endpointDeclaration   `json:"actions,omitempty"`
@@ -111,6 +115,28 @@ type projectTargetConfig struct {
 	Flavor           string   `json:"flavor,omitempty"`
 	GradleTasks      []string `json:"gradle_tasks,omitempty"`
 	GradleProperties []string `json:"gradle_properties,omitempty"`
+}
+
+type releaseSigningConfig struct {
+	IOS     iosSigningConfig     `json:"ios,omitempty"`
+	Android androidSigningConfig `json:"android,omitempty"`
+}
+
+type iosSigningConfig struct {
+	TeamID                   string `json:"team_id,omitempty"`
+	BundleID                 string `json:"bundle_id,omitempty"`
+	CodeSignStyle            string `json:"code_sign_style,omitempty"`
+	ProvisioningProfile      string `json:"provisioning_profile,omitempty"`
+	CodeSignIdentity         string `json:"code_sign_identity,omitempty"`
+	ExportOptions            string `json:"export_options_plist,omitempty"`
+	AllowProvisioningUpdates bool   `json:"allow_provisioning_updates,omitempty"`
+}
+
+type androidSigningConfig struct {
+	StoreFile        string `json:"store_file,omitempty"`
+	StorePasswordEnv string `json:"store_password_env,omitempty"`
+	KeyAlias         string `json:"key_alias,omitempty"`
+	KeyPasswordEnv   string `json:"key_password_env,omitempty"`
 }
 
 type routeDeclaration struct {
@@ -178,6 +204,9 @@ func runBuildWithContext(ctx context.Context, args []string) error {
 	if err := validateBuildVariantOptions(opts); err != nil {
 		return err
 	}
+	if err := applyReleaseSigningConfig(&opts); err != nil {
+		return err
+	}
 	root, err := repoRoot()
 	if err != nil && !opts.hasNativeDefaults(targetName) {
 		return err
@@ -240,6 +269,7 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.exportOptions, "export-options-plist", "", "ExportOptions.plist for iOS release export")
 	fs.StringVar(&opts.exportPath, "export-path", "", "iOS export directory for release builds")
 	fs.StringVar(&opts.artifactManifest, "artifact-manifest", "", "write a JSON manifest describing generated and native build artifacts")
+	fs.StringVar(&opts.signingConfig, "signing-config", "", "release signing config JSON; defaults to .gsxnative/signing.json when present")
 	fs.StringVar(&opts.environment, "env", "", "build environment name forwarded to native build tools")
 	fs.StringVar(&opts.androidFlavor, "flavor", "", "Android product flavor for default app build tasks")
 	fs.StringVar(&opts.androidFlavor, "android-flavor", "", "Android product flavor for default app build tasks")
@@ -299,6 +329,9 @@ func applyBuildProjectConfig(opts *buildOptions, targetName string) error {
 	}
 	if opts.artifactManifest == "" && cfg.ArtifactManifest != "" {
 		opts.artifactManifest = resolveConfigPath(baseDir, cfg.ArtifactManifest)
+	}
+	if opts.signingConfig == "" && cfg.SigningConfig != "" {
+		opts.signingConfig = resolveConfigPath(baseDir, cfg.SigningConfig)
 	}
 	if targetName == "ios" || targetName == "all" {
 		applyIOSTargetConfig(opts, cfg.IOS, baseDir)
@@ -377,6 +410,110 @@ func loadProjectConfig(path string) (*projectConfig, string, bool, error) {
 		return nil, "", false, fmt.Errorf("parse project config %s: %w", path, err)
 	}
 	return &cfg, filepath.Dir(path), true, nil
+}
+
+func applyReleaseSigningConfig(opts *buildOptions) error {
+	if !opts.release {
+		return nil
+	}
+	path := opts.signingConfig
+	if path == "" {
+		if found, ok, err := findDefaultSigningConfig(opts.projectBaseDir); err != nil {
+			return err
+		} else if ok {
+			path = found
+		}
+	}
+	if path == "" {
+		return nil
+	}
+	signing, err := loadReleaseSigningConfig(path)
+	if err != nil {
+		return err
+	}
+	if err := validateReleaseSigningConfig(path, signing); err != nil {
+		return err
+	}
+	opts.signing = signing
+	opts.signingConfigPath = path
+	if opts.exportOptions == "" && signing.IOS.ExportOptions != "" {
+		opts.exportOptions = resolveConfigPath(filepath.Dir(path), signing.IOS.ExportOptions)
+	}
+	return nil
+}
+
+func loadReleaseSigningConfig(path string) (*releaseSigningConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read signing config %s: %w", path, err)
+	}
+	var cfg releaseSigningConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse signing config %s: %w", path, err)
+	}
+	return &cfg, nil
+}
+
+func validateReleaseSigningConfig(path string, cfg *releaseSigningConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if cfg.Android.hasAny() {
+		if strings.TrimSpace(cfg.Android.StoreFile) == "" {
+			return fmt.Errorf("signing config %s android.store_file is required", path)
+		}
+		if strings.TrimSpace(cfg.Android.StorePasswordEnv) == "" {
+			return fmt.Errorf("signing config %s android.store_password_env is required", path)
+		}
+		if strings.TrimSpace(cfg.Android.KeyAlias) == "" {
+			return fmt.Errorf("signing config %s android.key_alias is required", path)
+		}
+	}
+	return nil
+}
+
+func findDefaultSigningConfig(projectBaseDir string) (string, bool, error) {
+	var starts []string
+	if projectBaseDir != "" {
+		starts = append(starts, projectBaseDir)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", false, err
+	}
+	starts = append(starts, wd)
+	for _, start := range starts {
+		for dir := start; ; dir = filepath.Dir(dir) {
+			path := filepath.Join(dir, ".gsxnative", "signing.json")
+			if _, err := os.Stat(path); err == nil {
+				return path, true, nil
+			} else if err != nil && !os.IsNotExist(err) {
+				return "", false, err
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+		}
+	}
+	return "", false, nil
+}
+
+func (cfg androidSigningConfig) hasAny() bool {
+	return strings.TrimSpace(cfg.StoreFile) != "" ||
+		strings.TrimSpace(cfg.StorePasswordEnv) != "" ||
+		strings.TrimSpace(cfg.KeyAlias) != "" ||
+		strings.TrimSpace(cfg.KeyPasswordEnv) != ""
+}
+
+func (cfg iosSigningConfig) hasAny() bool {
+	return strings.TrimSpace(cfg.TeamID) != "" ||
+		strings.TrimSpace(cfg.BundleID) != "" ||
+		strings.TrimSpace(cfg.CodeSignStyle) != "" ||
+		strings.TrimSpace(cfg.ProvisioningProfile) != "" ||
+		strings.TrimSpace(cfg.CodeSignIdentity) != "" ||
+		strings.TrimSpace(cfg.ExportOptions) != "" ||
+		cfg.AllowProvisioningUpdates
 }
 
 func findProjectConfig() (string, bool, error) {
@@ -486,24 +623,26 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 }
 
 type nativeBuild struct {
-	source           string
-	output           string
-	supportOutput    string
-	project          string
-	xcodeProject     string
-	scheme           string
-	simulator        string
-	configuration    string
-	archivePath      string
-	exportOptions    string
-	exportPath       string
-	release          bool
-	codegenOnly      bool
-	gradleTasks      []string
-	gradleProperties []string
-	environment      string
-	androidFlavor    string
-	projectConfig    *projectConfig
+	source            string
+	output            string
+	supportOutput     string
+	project           string
+	xcodeProject      string
+	scheme            string
+	simulator         string
+	configuration     string
+	archivePath       string
+	exportOptions     string
+	exportPath        string
+	release           bool
+	codegenOnly       bool
+	gradleTasks       []string
+	gradleProperties  []string
+	environment       string
+	androidFlavor     string
+	projectConfig     *projectConfig
+	signing           *releaseSigningConfig
+	signingConfigPath string
 }
 
 type buildArtifactManifest struct {
@@ -531,6 +670,22 @@ type nativeBuildResult struct {
 	ArchivePath       string             `json:"archive_path,omitempty"`
 	ExportPath        string             `json:"export_path,omitempty"`
 	ExpectedArtifacts []expectedArtifact `json:"expected_artifacts,omitempty"`
+	Signing           *signingSummary    `json:"signing,omitempty"`
+}
+
+type signingSummary struct {
+	Config                   string `json:"config,omitempty"`
+	TeamID                   string `json:"team_id,omitempty"`
+	BundleID                 string `json:"bundle_id,omitempty"`
+	CodeSignStyle            string `json:"code_sign_style,omitempty"`
+	ProvisioningProfile      string `json:"provisioning_profile,omitempty"`
+	CodeSignIdentity         string `json:"code_sign_identity,omitempty"`
+	AllowProvisioningUpdates bool   `json:"allow_provisioning_updates,omitempty"`
+	ExportOptions            string `json:"export_options_plist,omitempty"`
+	StoreFile                string `json:"store_file,omitempty"`
+	StorePasswordEnv         string `json:"store_password_env,omitempty"`
+	KeyAlias                 string `json:"key_alias,omitempty"`
+	KeyPasswordEnv           string `json:"key_password_env,omitempty"`
 }
 
 type expectedArtifact struct {
@@ -540,20 +695,22 @@ type expectedArtifact struct {
 
 func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativeBuild, error) {
 	cfg := nativeBuild{
-		source:           firstNonEmpty(opts.source, repoDefault(root, "testdata/corpus/swift/counter.swift.gsx")),
-		xcodeProject:     firstNonEmpty(opts.xcodeProject, "CounterDemo"),
-		scheme:           firstNonEmpty(opts.scheme, "CounterDemo"),
-		simulator:        firstNonEmpty(opts.simulator, defaultIOSDestination(opts.release)),
-		configuration:    firstNonEmpty(opts.configuration, defaultIOSConfiguration(opts.release)),
-		archivePath:      opts.archivePath,
-		exportOptions:    opts.exportOptions,
-		exportPath:       opts.exportPath,
-		release:          opts.release,
-		codegenOnly:      opts.codegenOnly,
-		gradleTasks:      append([]string(nil), opts.gradleTasks...),
-		gradleProperties: append([]string(nil), opts.gradleProperties...),
-		environment:      opts.environment,
-		projectConfig:    opts.projectConfig,
+		source:            firstNonEmpty(opts.source, repoDefault(root, "testdata/corpus/swift/counter.swift.gsx")),
+		xcodeProject:      firstNonEmpty(opts.xcodeProject, "CounterDemo"),
+		scheme:            firstNonEmpty(opts.scheme, "CounterDemo"),
+		simulator:         firstNonEmpty(opts.simulator, defaultIOSDestination(opts.release)),
+		configuration:     firstNonEmpty(opts.configuration, defaultIOSConfiguration(opts.release)),
+		archivePath:       opts.archivePath,
+		exportOptions:     opts.exportOptions,
+		exportPath:        opts.exportPath,
+		release:           opts.release,
+		codegenOnly:       opts.codegenOnly,
+		gradleTasks:       append([]string(nil), opts.gradleTasks...),
+		gradleProperties:  append([]string(nil), opts.gradleProperties...),
+		environment:       opts.environment,
+		projectConfig:     opts.projectConfig,
+		signing:           opts.signing,
+		signingConfigPath: opts.signingConfigPath,
 	}
 	switch tgt {
 	case target.Android:
@@ -616,13 +773,15 @@ func nativeBuildResultFor(tgt target.Target, cfg nativeBuild) nativeBuildResult 
 		tasks := androidBuildTasks(cfg)
 		result.BuildSystem = gradleExecutable(cfg.project)
 		result.BuildTasks = tasks
-		result.BuildProperties = androidBuildProperties(cfg)
+		result.BuildProperties = androidBuildPropertiesForManifest(cfg)
+		result.Signing = androidSigningSummary(cfg)
 		if !cfg.codegenOnly {
 			result.ExpectedArtifacts = androidExpectedArtifacts(cfg.project, cfg.androidFlavor, tasks)
 		}
 	case target.IOS:
 		result.BuildSystem = "xcodebuild"
 		result.Configuration = cfg.configuration
+		result.Signing = iosSigningSummary(cfg)
 		if cfg.release {
 			result.ArchivePath = iosArchivePath(cfg)
 			if cfg.exportOptions != "" {
@@ -652,16 +811,22 @@ func writeBuildArtifactManifest(opts buildOptions, results []nativeBuildResult) 
 	if err := os.MkdirAll(filepath.Dir(opts.artifactManifest), 0755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(manifest); err != nil {
 		return err
 	}
-	return os.WriteFile(opts.artifactManifest, append(data, '\n'), 0644)
+	return os.WriteFile(opts.artifactManifest, buf.Bytes(), 0644)
 }
 
 func buildAndroid(ctx context.Context, cfg nativeBuild) error {
 	tasks := androidBuildTasks(cfg)
-	args := androidBuildArgs(cfg, tasks)
+	args, err := androidBuildArgs(cfg, tasks)
+	if err != nil {
+		return err
+	}
 	return buildRunner.Run(ctx, cfg.project, gradleExecutable(cfg.project), args...)
 }
 
@@ -679,21 +844,139 @@ func androidBuildTasks(cfg nativeBuild) []string {
 	return append([]string(nil), tasks...)
 }
 
-func androidBuildArgs(cfg nativeBuild, tasks []string) []string {
+func androidBuildArgs(cfg nativeBuild, tasks []string) ([]string, error) {
 	args := []string{"--no-daemon"}
-	for _, property := range androidBuildProperties(cfg) {
+	properties, err := androidBuildPropertiesForBuild(cfg)
+	if err != nil {
+		return nil, err
+	}
+	for _, property := range properties {
 		args = append(args, "-P"+property)
 	}
 	args = append(args, tasks...)
-	return args
+	return args, nil
 }
 
-func androidBuildProperties(cfg nativeBuild) []string {
+func androidBuildPropertiesForManifest(cfg nativeBuild) []string {
 	properties := append([]string(nil), cfg.gradleProperties...)
 	if cfg.environment != "" && !hasGradleProperty(properties, "gsxEnvironment") {
 		properties = append(properties, "gsxEnvironment="+cfg.environment)
 	}
+	properties = appendAndroidSigningProperties(cfg, properties)
+	return redactGradleProperties(properties)
+}
+
+func androidBuildPropertiesForBuild(cfg nativeBuild) ([]string, error) {
+	properties := append([]string(nil), cfg.gradleProperties...)
+	if cfg.environment != "" && !hasGradleProperty(properties, "gsxEnvironment") {
+		properties = append(properties, "gsxEnvironment="+cfg.environment)
+	}
+	var err error
+	properties, err = appendAndroidSigningPropertiesForBuild(cfg, properties)
+	if err != nil {
+		return nil, err
+	}
+	return properties, nil
+}
+
+func appendAndroidSigningPropertiesForBuild(cfg nativeBuild, properties []string) ([]string, error) {
+	if !cfg.release || cfg.signing == nil || !cfg.signing.Android.hasAny() {
+		return properties, nil
+	}
+	signing := cfg.signing.Android
+	if !hasGradleProperty(properties, "gsxSigningStoreFile") {
+		properties = append(properties, "gsxSigningStoreFile="+androidSigningStoreFile(cfg))
+	}
+	if !hasGradleProperty(properties, "gsxSigningStorePassword") {
+		value, err := signingEnvValue(signing.StorePasswordEnv, "android.store_password_env")
+		if err != nil {
+			return nil, err
+		}
+		properties = append(properties, "gsxSigningStorePassword="+value)
+	}
+	if !hasGradleProperty(properties, "gsxSigningKeyAlias") {
+		properties = append(properties, "gsxSigningKeyAlias="+signing.KeyAlias)
+	}
+	if !hasGradleProperty(properties, "gsxSigningKeyPassword") {
+		keyPasswordEnv := firstNonEmpty(signing.KeyPasswordEnv, signing.StorePasswordEnv)
+		value, err := signingEnvValue(keyPasswordEnv, "android.key_password_env")
+		if err != nil {
+			return nil, err
+		}
+		properties = append(properties, "gsxSigningKeyPassword="+value)
+	}
+	return properties, nil
+}
+
+func appendAndroidSigningProperties(cfg nativeBuild, properties []string) []string {
+	if !cfg.release || cfg.signing == nil || !cfg.signing.Android.hasAny() {
+		return properties
+	}
+	signing := cfg.signing.Android
+	if !hasGradleProperty(properties, "gsxSigningStoreFile") {
+		properties = append(properties, "gsxSigningStoreFile="+androidSigningStoreFile(cfg))
+	}
+	if !hasGradleProperty(properties, "gsxSigningStorePassword") {
+		value := "<redacted:" + signing.StorePasswordEnv + ">"
+		properties = append(properties, "gsxSigningStorePassword="+value)
+	}
+	if !hasGradleProperty(properties, "gsxSigningKeyAlias") {
+		properties = append(properties, "gsxSigningKeyAlias="+signing.KeyAlias)
+	}
+	if !hasGradleProperty(properties, "gsxSigningKeyPassword") {
+		keyPasswordEnv := firstNonEmpty(signing.KeyPasswordEnv, signing.StorePasswordEnv)
+		value := "<redacted:" + keyPasswordEnv + ">"
+		properties = append(properties, "gsxSigningKeyPassword="+value)
+	}
 	return properties
+}
+
+func signingEnvValue(name, field string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("signing config %s is required", field)
+	}
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return "", fmt.Errorf("signing environment variable %s is not set", name)
+	}
+	return value, nil
+}
+
+func androidSigningStoreFile(cfg nativeBuild) string {
+	if cfg.signing == nil {
+		return ""
+	}
+	storeFile := cfg.signing.Android.StoreFile
+	if storeFile == "" || filepath.IsAbs(storeFile) || cfg.signingConfigPath == "" {
+		return storeFile
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(cfg.signingConfigPath), storeFile))
+}
+
+func redactGradleProperties(properties []string) []string {
+	redacted := make([]string, 0, len(properties))
+	for _, property := range properties {
+		name, _, ok := strings.Cut(property, "=")
+		if !ok {
+			name = property
+		}
+		if isSecretGradleProperty(name) {
+			redacted = append(redacted, name+"=<redacted>")
+			continue
+		}
+		redacted = append(redacted, property)
+	}
+	return redacted
+}
+
+func isSecretGradleProperty(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "gsxsigningstorepassword", "gsxsigningkeypassword":
+		return true
+	default:
+		return false
+	}
 }
 
 func androidExpectedArtifacts(project, flavor string, tasks []string) []expectedArtifact {
@@ -795,9 +1078,13 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	if archivePath != "" {
 		args = append(args, "-archivePath", archivePath)
 	}
+	if cfg.signing != nil && cfg.signing.IOS.AllowProvisioningUpdates {
+		args = append(args, "-allowProvisioningUpdates")
+	}
 	if cfg.environment != "" {
 		args = append(args, "GSX_ENVIRONMENT="+cfg.environment)
 	}
+	args = append(args, iosSigningBuildSettings(cfg)...)
 	args = append(args, action)
 	if err := buildRunner.Run(ctx, cfg.project, "xcodebuild", args...); err != nil {
 		return err
@@ -805,12 +1092,71 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	if !cfg.release || cfg.exportOptions == "" {
 		return nil
 	}
-	return buildRunner.Run(ctx, cfg.project, "xcodebuild",
+	exportArgs := []string{
 		"-exportArchive",
 		"-archivePath", archivePath,
 		"-exportOptionsPlist", cfg.exportOptions,
 		"-exportPath", iosExportPath(cfg),
-	)
+	}
+	if cfg.signing != nil && cfg.signing.IOS.AllowProvisioningUpdates {
+		exportArgs = append(exportArgs, "-allowProvisioningUpdates")
+	}
+	return buildRunner.Run(ctx, cfg.project, "xcodebuild", exportArgs...)
+}
+
+func iosSigningBuildSettings(cfg nativeBuild) []string {
+	if !cfg.release || cfg.signing == nil || !cfg.signing.IOS.hasAny() {
+		return nil
+	}
+	signing := cfg.signing.IOS
+	var settings []string
+	if signing.TeamID != "" {
+		settings = append(settings, "DEVELOPMENT_TEAM="+signing.TeamID)
+	}
+	if signing.BundleID != "" {
+		settings = append(settings, "PRODUCT_BUNDLE_IDENTIFIER="+signing.BundleID)
+	}
+	if signing.CodeSignStyle != "" {
+		settings = append(settings, "CODE_SIGN_STYLE="+signing.CodeSignStyle)
+	}
+	if signing.ProvisioningProfile != "" {
+		settings = append(settings, "PROVISIONING_PROFILE_SPECIFIER="+signing.ProvisioningProfile)
+	}
+	if signing.CodeSignIdentity != "" {
+		settings = append(settings, "CODE_SIGN_IDENTITY="+signing.CodeSignIdentity)
+	}
+	return settings
+}
+
+func iosSigningSummary(cfg nativeBuild) *signingSummary {
+	if !cfg.release || cfg.signing == nil || !cfg.signing.IOS.hasAny() {
+		return nil
+	}
+	signing := cfg.signing.IOS
+	return &signingSummary{
+		Config:                   cfg.signingConfigPath,
+		TeamID:                   signing.TeamID,
+		BundleID:                 signing.BundleID,
+		CodeSignStyle:            signing.CodeSignStyle,
+		ProvisioningProfile:      signing.ProvisioningProfile,
+		CodeSignIdentity:         signing.CodeSignIdentity,
+		AllowProvisioningUpdates: signing.AllowProvisioningUpdates,
+		ExportOptions:            cfg.exportOptions,
+	}
+}
+
+func androidSigningSummary(cfg nativeBuild) *signingSummary {
+	if !cfg.release || cfg.signing == nil || !cfg.signing.Android.hasAny() {
+		return nil
+	}
+	signing := cfg.signing.Android
+	return &signingSummary{
+		Config:           cfg.signingConfigPath,
+		StoreFile:        androidSigningStoreFile(cfg),
+		StorePasswordEnv: signing.StorePasswordEnv,
+		KeyAlias:         signing.KeyAlias,
+		KeyPasswordEnv:   firstNonEmpty(signing.KeyPasswordEnv, signing.StorePasswordEnv),
+	}
 }
 
 func iosArchivePath(cfg nativeBuild) string {

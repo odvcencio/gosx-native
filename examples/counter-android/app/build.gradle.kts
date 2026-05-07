@@ -3,6 +3,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val gsxSigningStoreFile = providers.gradleProperty("gsxSigningStoreFile")
+val gsxSigningStorePassword = providers.gradleProperty("gsxSigningStorePassword")
+val gsxSigningKeyAlias = providers.gradleProperty("gsxSigningKeyAlias")
+val gsxSigningKeyPassword = providers.gradleProperty("gsxSigningKeyPassword")
+val hasGSXReleaseSigning =
+    gsxSigningStoreFile.isPresent &&
+        gsxSigningStorePassword.isPresent &&
+        gsxSigningKeyAlias.isPresent &&
+        gsxSigningKeyPassword.isPresent
+
 android {
     namespace = "com.gosxnative.counterdemo"
     compileSdk = 36
@@ -18,6 +28,25 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    signingConfigs {
+        if (hasGSXReleaseSigning) {
+            create("gsxRelease") {
+                storeFile = file(gsxSigningStoreFile.get())
+                storePassword = gsxSigningStorePassword.get()
+                keyAlias = gsxSigningKeyAlias.get()
+                keyPassword = gsxSigningKeyPassword.get()
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasGSXReleaseSigning) {
+                signingConfig = signingConfigs.getByName("gsxRelease")
+            }
+        }
     }
 
     testOptions {
