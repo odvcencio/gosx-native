@@ -34,10 +34,13 @@ jobs:
       - name: Scaffold smoke
         working-directory: gosx-native
         run: |
+          go build -o "$RUNNER_TEMP/gsxnative" ./cmd/gsxnative
           appdir="$RUNNER_TEMP/GSXSmoke"
-          go run ./cmd/gsxnative init "$appdir" --name GSXSmoke --module com.example.gsxsmoke --runtime-root "$PWD"
-          go run ./cmd/gsxnative check ios "$appdir/src/app.gsx"
-          go run ./cmd/gsxnative check android "$appdir/src/app.gsx"
+          "$RUNNER_TEMP/gsxnative" init "$appdir" --name GSXSmoke --module com.example.gsxsmoke --runtime-root "$PWD"
+          "$RUNNER_TEMP/gsxnative" check ios "$appdir/src/app.gsx"
+          "$RUNNER_TEMP/gsxnative" check android "$appdir/src/app.gsx"
+          (cd "$appdir" && "$RUNNER_TEMP/gsxnative" dev all --once --reload-stamp .gsxnative/reload.json --reload-command './scripts/reload-native.sh')
+          test -s "$appdir/.gsxnative/reload.json"
       - name: Vet
         working-directory: gosx-native
         run: go vet ./...
