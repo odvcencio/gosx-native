@@ -6,6 +6,17 @@ The mobile counterpart to [gosx](https://github.com/odvcencio/gosx). React Nativ
 
 See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers/specs/2026-05-04-gosx-native-design.md) for the design.
 
+## Production Readiness Gaps
+
+- **Source-owned declarations:** routes, data loaders, and actions still come from `gosxnative.json`; they need to lower from source into NIR so config is not the source of truth.
+- **Typed data/action codecs:** generated clients can call HTTP endpoints, but request bodies, response decoding, validation errors, and typed action payloads still need schema-backed generation.
+- **Auth and session plumbing:** token storage, refresh, request signing, and per-route auth policy are not first-class yet.
+- **Native bridge and escape hatches:** project-level native modules and `//gosx:native <target>` implementation checks are still thin.
+- **Dev workflow:** file watching, fast rebuild, hot reload, and simulator/device targeting need a dedicated `dev` command.
+- **Release packaging:** signing, flavors/schemes, environment config, store-build defaults, and artifact publishing are not production templates yet.
+- **Scene3D renderer fidelity:** renderer-grade post-fx, real GPU compute, renderer-backed HTML overlays, golden visual conformance, and full Metal/Vulkan-grade `scene.IR` parity remain open.
+- **Operational hardening:** structured logging, crash reporting hooks, offline/cache policy, retries/backoff, and telemetry-safe diagnostics need runtime APIs.
+
 ## Counter Demos
 
 - New app scaffold: `go run ./cmd/gsxnative init /tmp/MyApp --name MyApp --module com.example.myapp`
