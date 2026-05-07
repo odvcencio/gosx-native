@@ -328,6 +328,31 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(try await tokenStore.token(), "fresh-token")
     }
 
+    func testAuthClientExchangesCredentialsForTokens() async throws {
+        let tokenBody = Data(#"{"access_token":"access-1","refresh_token":"refresh-1","expires_in":3600}"#.utf8)
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: tokenBody))
+        let client = GSXAuthClient(dataClient: GSXDataClient(transport: transport))
+
+        let token = try await client.exchange(
+            strategy: "password",
+            credentials: ["email": "user@example.com", "password": "secret"]
+        )
+
+        XCTAssertEqual(token.accessToken, "access-1")
+        XCTAssertEqual(token.refreshToken, "refresh-1")
+        XCTAssertEqual(token.expiresInSeconds, 3600)
+        XCTAssertEqual(token.tokenType, "Bearer")
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.path, "/api/auth/exchange")
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        let body = try XCTUnwrap(request.body)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["strategy"] as? String, "password")
+        let credentials = try XCTUnwrap(object["credentials"] as? [String: Any])
+        XCTAssertEqual(credentials["email"] as? String, "user@example.com")
+    }
+
     func testCapabilityCheckerReportsMissingRequiredCapabilities() {
         let report = GSXCapabilityChecker.check(
             required: [
