@@ -434,6 +434,50 @@ func TestBuildIOSForwardsServerURLBuildSetting(t *testing.T) {
 	}
 }
 
+func TestBuildIOSDebugDerivedDataWritesSimulatorAppArtifact(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.swift")
+	derivedData := filepath.Join(project, "build", "DerivedData")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	err = runBuild([]string{
+		"ios",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--scheme", "CounterDemo",
+		"--derived-data", derivedData,
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 2 {
+		t.Fatalf("expected xcodegen and xcodebuild commands, got %#v", fake.commands)
+	}
+	joinedArgs := strings.Join(fake.commands[1].args, " ")
+	if !strings.Contains(joinedArgs, "-derivedDataPath "+derivedData) {
+		t.Fatalf("expected derived data arg, got %q", joinedArgs)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	target := manifest.Targets[0]
+	appPath := filepath.Join(derivedData, "Build", "Products", "Debug-iphonesimulator", "CounterDemo.app")
+	if target.DerivedDataPath != derivedData || !containsArtifact(target.ExpectedArtifacts, "ios_simulator_app", appPath) {
+		t.Fatalf("expected simulator app artifact in manifest: %#v", target)
+	}
+}
+
 func TestBuildRejectsInvalidServerURL(t *testing.T) {
 	err := runBuild([]string{"android", "--server-url", "localhost:3000"})
 	if err == nil || !strings.Contains(err.Error(), "server URL") {

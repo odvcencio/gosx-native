@@ -7,14 +7,28 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/odvcencio/gosx-native/target"
 )
 
 type devOptions struct {
-	target    string
-	once      bool
-	build     bool
-	interval  time.Duration
-	buildArgs []string
+	target          string
+	once            bool
+	build           bool
+	install         bool
+	launch          bool
+	interval        time.Duration
+	buildArgs       []string
+	device          string
+	androidDevice   string
+	iosDevice       string
+	androidPackage  string
+	androidActivity string
+	androidAPK      string
+	iosBundleID     string
+	iosAppPath      string
+	adb             string
+	xcrun           string
 }
 
 type watchedFile struct {
@@ -31,7 +45,7 @@ func runDevWithContext(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := runDevBuild(ctx, opts); err != nil {
+	if err := runDevCycle(ctx, opts); err != nil {
 		return err
 	}
 	if opts.once {
@@ -61,7 +75,7 @@ func runDevWithContext(ctx context.Context, args []string) error {
 			if !changed {
 				continue
 			}
-			if err := runDevBuild(ctx, opts); err != nil {
+			if err := runDevCycle(ctx, opts); err != nil {
 				fmt.Fprintf(os.Stderr, "dev build: %v\n", err)
 			}
 			snapshot = next
@@ -70,7 +84,7 @@ func runDevWithContext(ctx context.Context, args []string) error {
 }
 
 func parseDevOptions(args []string) (devOptions, error) {
-	opts := devOptions{target: "all", interval: 500 * time.Millisecond}
+	opts := devOptions{target: "all", interval: 500 * time.Millisecond, androidActivity: ".MainActivity", adb: "adb", xcrun: "xcrun"}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if i == 0 && isDevTarget(arg) {
@@ -82,6 +96,10 @@ func parseDevOptions(args []string) (devOptions, error) {
 			opts.once = true
 		case arg == "--build":
 			opts.build = true
+		case arg == "--install":
+			opts.install = true
+		case arg == "--launch":
+			opts.launch = true
 		case arg == "--target":
 			i++
 			if i >= len(args) {
@@ -114,11 +132,118 @@ func parseDevOptions(args []string) (devOptions, error) {
 				return devOptions{}, fmt.Errorf("invalid dev interval %q", value)
 			}
 			opts.interval = interval
+		case arg == "--device":
+			value, next, err := devFlagValue(args, i, "device")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.device = value
+			i = next
+		case strings.HasPrefix(arg, "--device="):
+			opts.device = strings.TrimPrefix(arg, "--device=")
+		case arg == "--android-device":
+			value, next, err := devFlagValue(args, i, "android-device")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.androidDevice = value
+			i = next
+		case strings.HasPrefix(arg, "--android-device="):
+			opts.androidDevice = strings.TrimPrefix(arg, "--android-device=")
+		case arg == "--ios-device":
+			value, next, err := devFlagValue(args, i, "ios-device")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.iosDevice = value
+			i = next
+		case strings.HasPrefix(arg, "--ios-device="):
+			opts.iosDevice = strings.TrimPrefix(arg, "--ios-device=")
+		case arg == "--android-package":
+			value, next, err := devFlagValue(args, i, "android-package")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.androidPackage = value
+			i = next
+		case strings.HasPrefix(arg, "--android-package="):
+			opts.androidPackage = strings.TrimPrefix(arg, "--android-package=")
+		case arg == "--android-activity":
+			value, next, err := devFlagValue(args, i, "android-activity")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.androidActivity = value
+			i = next
+		case strings.HasPrefix(arg, "--android-activity="):
+			opts.androidActivity = strings.TrimPrefix(arg, "--android-activity=")
+		case arg == "--apk":
+			value, next, err := devFlagValue(args, i, "apk")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.androidAPK = value
+			i = next
+		case strings.HasPrefix(arg, "--apk="):
+			opts.androidAPK = strings.TrimPrefix(arg, "--apk=")
+		case arg == "--ios-bundle-id":
+			value, next, err := devFlagValue(args, i, "ios-bundle-id")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.iosBundleID = value
+			i = next
+		case strings.HasPrefix(arg, "--ios-bundle-id="):
+			opts.iosBundleID = strings.TrimPrefix(arg, "--ios-bundle-id=")
+		case arg == "--ios-app":
+			value, next, err := devFlagValue(args, i, "ios-app")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.iosAppPath = value
+			i = next
+		case strings.HasPrefix(arg, "--ios-app="):
+			opts.iosAppPath = strings.TrimPrefix(arg, "--ios-app=")
+		case arg == "--adb":
+			value, next, err := devFlagValue(args, i, "adb")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.adb = value
+			i = next
+		case strings.HasPrefix(arg, "--adb="):
+			opts.adb = strings.TrimPrefix(arg, "--adb=")
+		case arg == "--xcrun":
+			value, next, err := devFlagValue(args, i, "xcrun")
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.xcrun = value
+			i = next
+		case strings.HasPrefix(arg, "--xcrun="):
+			opts.xcrun = strings.TrimPrefix(arg, "--xcrun=")
 		default:
 			opts.buildArgs = append(opts.buildArgs, arg)
 		}
 	}
+	if opts.launch {
+		opts.install = true
+	}
+	if opts.install {
+		opts.build = true
+	}
+	if opts.install && hasBuildFlag(opts.buildArgs, "codegen-only") {
+		return devOptions{}, fmt.Errorf("dev install/launch cannot run with --codegen-only")
+	}
 	return opts, nil
+}
+
+func devFlagValue(args []string, index int, name string) (string, int, error) {
+	next := index + 1
+	if next >= len(args) {
+		return "", index, fmt.Errorf("flag needs an argument: --%s", name)
+	}
+	return args[next], next, nil
 }
 
 func isDevTarget(value string) bool {
@@ -130,12 +255,35 @@ func isDevTarget(value string) bool {
 	}
 }
 
-func runDevBuild(ctx context.Context, opts devOptions) error {
-	args := append([]string{opts.target}, opts.buildArgs...)
+func runDevCycle(ctx context.Context, opts devOptions) error {
+	buildArgs, err := devBuildArgs(opts)
+	if err != nil {
+		return err
+	}
+	if err := runDevBuild(ctx, opts, buildArgs); err != nil {
+		return err
+	}
+	return runDevDeviceActions(ctx, opts, buildArgs)
+}
+
+func runDevBuild(ctx context.Context, opts devOptions, buildArgs []string) error {
+	args := append([]string{opts.target}, buildArgs...)
 	if !opts.build && !hasBuildFlag(args, "codegen-only") {
 		args = append(args, "--codegen-only")
 	}
 	return runBuildWithContext(ctx, args)
+}
+
+func devBuildArgs(opts devOptions) ([]string, error) {
+	args := append([]string(nil), opts.buildArgs...)
+	if !opts.install || !devTargetsIOS(opts.target) || opts.iosAppPath != "" || hasBuildFlag(args, "derived-data") {
+		return args, nil
+	}
+	derivedData, err := defaultDevDerivedDataPath(args)
+	if err != nil {
+		return nil, err
+	}
+	return append(args, "--derived-data", derivedData), nil
 }
 
 func hasBuildFlag(args []string, name string) bool {
@@ -147,6 +295,211 @@ func hasBuildFlag(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func runDevDeviceActions(ctx context.Context, opts devOptions, buildArgs []string) error {
+	if !opts.install {
+		return nil
+	}
+	for _, tgt := range devDeviceTargets(opts.target) {
+		cfg, err := devNativeBuildConfig(tgt, buildArgs)
+		if err != nil {
+			return err
+		}
+		switch tgt {
+		case target.Android:
+			if err := runAndroidDeviceActions(ctx, opts, cfg); err != nil {
+				return err
+			}
+		case target.IOS:
+			if err := runIOSDeviceActions(ctx, opts, cfg); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func runAndroidDeviceActions(ctx context.Context, opts devOptions, cfg nativeBuild) error {
+	apk := opts.androidAPK
+	if apk == "" {
+		artifact, ok := firstExpectedArtifact(nativeBuildResultFor(target.Android, cfg), "android_apk")
+		if !ok {
+			return fmt.Errorf("could not determine Android APK for dev install; pass --apk or build an APK task")
+		}
+		apk = artifact.Path
+	}
+	packageName := ""
+	if opts.launch {
+		packageName = firstNonEmpty(opts.androidPackage, cfg.projectConfigAndroidPackage(), readAndroidApplicationID(cfg.project))
+		if packageName == "" {
+			return fmt.Errorf("could not determine Android package for dev launch; pass --android-package")
+		}
+	}
+	adbArgs := androidADBPrefix(opts)
+	if err := buildRunner.Run(ctx, cfg.project, firstNonEmpty(opts.adb, "adb"), append(adbArgs, "install", "-r", apk)...); err != nil {
+		return err
+	}
+	if !opts.launch {
+		return nil
+	}
+	activity := firstNonEmpty(opts.androidActivity, ".MainActivity")
+	component := androidLaunchComponent(packageName, activity)
+	return buildRunner.Run(ctx, cfg.project, firstNonEmpty(opts.adb, "adb"), append(adbArgs, "shell", "am", "start", "-n", component)...)
+}
+
+func runIOSDeviceActions(ctx context.Context, opts devOptions, cfg nativeBuild) error {
+	appPath := opts.iosAppPath
+	if appPath == "" {
+		if cfg.derivedDataPath == "" {
+			return fmt.Errorf("could not determine iOS app path for dev install; pass --ios-app or --derived-data")
+		}
+		appPath = iosSimulatorAppPath(cfg)
+	}
+	device := firstNonEmpty(opts.iosDevice, opts.device, "booted")
+	xcrun := firstNonEmpty(opts.xcrun, "xcrun")
+	bundleID := ""
+	if opts.launch {
+		bundleID = firstNonEmpty(opts.iosBundleID, cfg.projectConfigIOSBundleID(), readXcodeGenBundleID(cfg.project, cfg.scheme))
+		if bundleID == "" {
+			return fmt.Errorf("could not determine iOS bundle id for dev launch; pass --ios-bundle-id")
+		}
+	}
+	if err := buildRunner.Run(ctx, cfg.project, xcrun, "simctl", "install", device, appPath); err != nil {
+		return err
+	}
+	if !opts.launch {
+		return nil
+	}
+	return buildRunner.Run(ctx, cfg.project, xcrun, "simctl", "launch", device, bundleID)
+}
+
+func devNativeBuildConfig(tgt target.Target, buildArgs []string) (nativeBuild, error) {
+	targetName := string(tgt)
+	opts, err := parseBuildOptions(targetName, buildArgs)
+	if err != nil {
+		return nativeBuild{}, err
+	}
+	if err := applyBuildProjectConfig(&opts, targetName); err != nil {
+		return nativeBuild{}, err
+	}
+	if err := applyReleaseSigningConfig(&opts); err != nil {
+		return nativeBuild{}, err
+	}
+	root, err := repoRoot()
+	if err != nil && !opts.hasNativeDefaults(targetName) {
+		return nativeBuild{}, err
+	}
+	if err != nil {
+		root = ""
+	}
+	return nativeBuildConfig(root, tgt, opts)
+}
+
+func defaultDevDerivedDataPath(buildArgs []string) (string, error) {
+	cfg, err := devNativeBuildConfig(target.IOS, buildArgs)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cfg.project, "build", "gsxnative-derived-data"), nil
+}
+
+func devDeviceTargets(targetName string) []target.Target {
+	switch strings.ToLower(targetName) {
+	case "android":
+		return []target.Target{target.Android}
+	case "ios":
+		return []target.Target{target.IOS}
+	case "all":
+		return []target.Target{target.IOS, target.Android}
+	default:
+		return nil
+	}
+}
+
+func devTargetsIOS(targetName string) bool {
+	for _, tgt := range devDeviceTargets(targetName) {
+		if tgt == target.IOS {
+			return true
+		}
+	}
+	return false
+}
+
+func androidADBPrefix(opts devOptions) []string {
+	device := firstNonEmpty(opts.androidDevice, opts.device)
+	if device == "" {
+		return nil
+	}
+	return []string{"-s", device}
+}
+
+func firstExpectedArtifact(result nativeBuildResult, kind string) (expectedArtifact, bool) {
+	for _, artifact := range result.ExpectedArtifacts {
+		if artifact.Kind == kind {
+			return artifact, true
+		}
+	}
+	return expectedArtifact{}, false
+}
+
+func (cfg nativeBuild) projectConfigAndroidPackage() string {
+	if cfg.projectConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.projectConfig.Module)
+}
+
+func (cfg nativeBuild) projectConfigIOSBundleID() string {
+	if cfg.projectConfig == nil || strings.TrimSpace(cfg.projectConfig.Module) == "" || strings.TrimSpace(cfg.projectConfig.Name) == "" {
+		return ""
+	}
+	return strings.TrimSpace(cfg.projectConfig.Module) + "." + strings.TrimSpace(cfg.projectConfig.Name)
+}
+
+func readAndroidApplicationID(project string) string {
+	data, err := os.ReadFile(filepath.Join(project, "app", "build.gradle.kts"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "applicationId") {
+			continue
+		}
+		if _, value, ok := strings.Cut(line, "="); ok {
+			return strings.Trim(strings.TrimSpace(value), `"`)
+		}
+	}
+	return ""
+}
+
+func readXcodeGenBundleID(project, scheme string) string {
+	data, err := os.ReadFile(filepath.Join(project, "project.yml"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "bundleIdPrefix:") {
+			continue
+		}
+		prefix := strings.TrimSpace(strings.TrimPrefix(line, "bundleIdPrefix:"))
+		prefix = strings.Trim(prefix, `"`)
+		if prefix == "" || scheme == "" {
+			return prefix
+		}
+		return prefix + "." + scheme
+	}
+	return ""
+}
+
+func androidLaunchComponent(packageName, activity string) string {
+	activity = strings.TrimSpace(activity)
+	if strings.Contains(activity, "/") {
+		return activity
+	}
+	return packageName + "/" + activity
 }
 
 func devWatchRoot(opts devOptions) (string, error) {

@@ -66,6 +66,7 @@ type buildOptions struct {
 	scheme             string
 	simulator          string
 	configuration      string
+	derivedDataPath    string
 	archivePath        string
 	exportOptions      string
 	exportPath         string
@@ -115,6 +116,7 @@ type projectTargetConfig struct {
 	Scheme           string   `json:"scheme,omitempty"`
 	Simulator        string   `json:"simulator,omitempty"`
 	Configuration    string   `json:"configuration,omitempty"`
+	DerivedDataPath  string   `json:"derived_data_path,omitempty"`
 	ArchivePath      string   `json:"archive_path,omitempty"`
 	ExportOptions    string   `json:"export_options_plist,omitempty"`
 	ExportPath       string   `json:"export_path,omitempty"`
@@ -288,6 +290,7 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.scheme, "scheme", "", "Xcode scheme for iOS builds")
 	fs.StringVar(&opts.simulator, "simulator", "", "iOS Simulator name")
 	fs.StringVar(&opts.configuration, "configuration", "", "Xcode configuration for iOS builds")
+	fs.StringVar(&opts.derivedDataPath, "derived-data", "", "stable Xcode derived data path for debug builds and install/launch flows")
 	fs.StringVar(&opts.archivePath, "archive-path", "", "iOS archive path for release builds")
 	fs.StringVar(&opts.exportOptions, "export-options-plist", "", "ExportOptions.plist for iOS release export")
 	fs.StringVar(&opts.exportPath, "export-path", "", "iOS export directory for release builds")
@@ -391,6 +394,9 @@ func applyIOSTargetConfig(opts *buildOptions, cfg projectTargetConfig, baseDir s
 	}
 	if !opts.configurationSet && cfg.Configuration != "" {
 		opts.configuration = cfg.Configuration
+	}
+	if opts.derivedDataPath == "" && cfg.DerivedDataPath != "" {
+		opts.derivedDataPath = resolveConfigPath(baseDir, cfg.DerivedDataPath)
 	}
 	if opts.archivePath == "" && cfg.ArchivePath != "" {
 		opts.archivePath = resolveConfigPath(baseDir, cfg.ArchivePath)
@@ -680,6 +686,7 @@ type nativeBuild struct {
 	scheme            string
 	simulator         string
 	configuration     string
+	derivedDataPath   string
 	archivePath       string
 	exportOptions     string
 	exportPath        string
@@ -718,6 +725,7 @@ type nativeBuildResult struct {
 	BuildTasks         []string            `json:"build_tasks,omitempty"`
 	BuildProperties    []string            `json:"build_properties,omitempty"`
 	Configuration      string              `json:"configuration,omitempty"`
+	DerivedDataPath    string              `json:"derived_data_path,omitempty"`
 	ArchivePath        string              `json:"archive_path,omitempty"`
 	ExportPath         string              `json:"export_path,omitempty"`
 	ExpectedArtifacts  []expectedArtifact  `json:"expected_artifacts,omitempty"`
@@ -758,6 +766,7 @@ func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativ
 		scheme:            firstNonEmpty(opts.scheme, "CounterDemo"),
 		simulator:         firstNonEmpty(opts.simulator, defaultIOSDestination(opts.release)),
 		configuration:     firstNonEmpty(opts.configuration, defaultIOSConfiguration(opts.release)),
+		derivedDataPath:   opts.derivedDataPath,
 		archivePath:       opts.archivePath,
 		exportOptions:     opts.exportOptions,
 		exportPath:        opts.exportPath,
@@ -841,6 +850,7 @@ func nativeBuildResultFor(tgt target.Target, cfg nativeBuild) nativeBuildResult 
 	case target.IOS:
 		result.BuildSystem = "xcodebuild"
 		result.Configuration = cfg.configuration
+		result.DerivedDataPath = cfg.derivedDataPath
 		result.Signing = iosSigningSummary(cfg)
 		if cfg.release {
 			result.ArchivePath = iosArchivePath(cfg)
@@ -1213,11 +1223,21 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	if err := buildRunner.Run(ctx, cfg.project, "xcodegen", "generate"); err != nil {
 		return err
 	}
-	derivedData, err := os.MkdirTemp("", "gsxnative-derived-data-*")
-	if err != nil {
+	derivedData := cfg.derivedDataPath
+	cleanupDerivedData := false
+	if derivedData == "" {
+		var err error
+		derivedData, err = os.MkdirTemp("", "gsxnative-derived-data-*")
+		if err != nil {
+			return err
+		}
+		cleanupDerivedData = true
+	} else if err := os.MkdirAll(derivedData, 0755); err != nil {
 		return err
 	}
-	defer os.RemoveAll(derivedData)
+	if cleanupDerivedData {
+		defer os.RemoveAll(derivedData)
+	}
 	action := "build"
 	archivePath := iosArchivePath(cfg)
 	if cfg.release {
@@ -1332,13 +1352,24 @@ func iosExportPath(cfg nativeBuild) string {
 
 func iosExpectedArtifacts(cfg nativeBuild) []expectedArtifact {
 	if !cfg.release {
-		return nil
+		if cfg.derivedDataPath == "" {
+			return nil
+		}
+		return []expectedArtifact{{Kind: "ios_simulator_app", Path: iosSimulatorAppPath(cfg)}}
 	}
 	artifacts := []expectedArtifact{{Kind: "ios_archive", Path: iosArchivePath(cfg)}}
 	if cfg.exportOptions != "" {
 		artifacts = append(artifacts, expectedArtifact{Kind: "ios_export", Path: iosExportPath(cfg)})
 	}
 	return artifacts
+}
+
+func iosSimulatorAppPath(cfg nativeBuild) string {
+	configuration := cfg.configuration
+	if configuration == "" {
+		configuration = "Debug"
+	}
+	return filepath.Join(cfg.derivedDataPath, "Build", "Products", configuration+"-iphonesimulator", cfg.scheme+".app")
 }
 
 func appendArtifact(artifacts []expectedArtifact, kind, path string) []expectedArtifact {
