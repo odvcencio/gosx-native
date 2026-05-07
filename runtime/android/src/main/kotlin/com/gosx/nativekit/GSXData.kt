@@ -2,6 +2,7 @@ package com.gosx.nativekit
 
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.charset.Charset
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -12,13 +13,34 @@ data class GSXRequest(
     val path: String,
     val headers: Map<String, String> = emptyMap(),
     val body: ByteArray? = null,
-)
+) {
+    fun withJSONBody(json: String, contentType: String = "application/json"): GSXRequest {
+        val requestHeaders = if (headers.keys.any { it.equals("Content-Type", ignoreCase = true) }) {
+            headers
+        } else {
+            headers + ("Content-Type" to contentType)
+        }
+        return copy(headers = requestHeaders, body = json.toByteArray(Charsets.UTF_8))
+    }
+
+    companion object {
+        fun json(
+            method: String = "POST",
+            path: String,
+            headers: Map<String, String> = emptyMap(),
+            json: String,
+            contentType: String = "application/json",
+        ): GSXRequest = GSXRequest(method = method, path = path, headers = headers).withJSONBody(json, contentType)
+    }
+}
 
 data class GSXResponse(
     val status: Int,
     val headers: Map<String, String> = emptyMap(),
     val body: ByteArray = ByteArray(0),
-)
+) {
+    fun text(charset: Charset = Charsets.UTF_8): String = String(body, charset)
+}
 
 class GSXHttpStatusException(
     val response: GSXResponse,
@@ -31,6 +53,37 @@ class GSXTransportException(
 
 interface GSXTransport {
     suspend fun send(request: GSXRequest): GSXResponse
+}
+
+interface GSXTokenStore {
+    suspend fun token(): String?
+}
+
+class GSXMemoryTokenStore(
+    initialToken: String? = null,
+) : GSXTokenStore {
+    @Volatile
+    private var currentToken: String? = initialToken
+
+    override suspend fun token(): String? = currentToken
+
+    fun setToken(token: String?) {
+        currentToken = token
+    }
+}
+
+class GSXBearerAuthTransport(
+    private val base: GSXTransport,
+    private val tokenStore: GSXTokenStore,
+) : GSXTransport {
+    override suspend fun send(request: GSXRequest): GSXResponse {
+        val token = tokenStore.token()?.trim()
+        if (token.isNullOrEmpty() || request.headers.keys.any { it.equals("Authorization", ignoreCase = true) }) {
+            return base.send(request)
+        }
+
+        return base.send(request.copy(headers = request.headers + ("Authorization" to "Bearer $token")))
+    }
 }
 
 class GSXHTTPTransport(
@@ -129,6 +182,17 @@ class GSXDataClient(
 ) {
     constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap()) : this(
         GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders),
+    )
+
+    constructor(
+        baseURL: String,
+        defaultHeaders: Map<String, String> = emptyMap(),
+        tokenStore: GSXTokenStore,
+    ) : this(
+        GSXBearerAuthTransport(
+            base = GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders),
+            tokenStore = tokenStore,
+        ),
     )
 
     suspend fun load(request: GSXRequest): GSXResponse {

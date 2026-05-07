@@ -69,6 +69,48 @@ final class GSXSignalTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+
+    func testJSONRequestEncodesBodyAndContentType() throws {
+        let request = try GSXRequest.json(path: "/greeting", body: GreetingPayload(message: "hello"))
+
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.path, "/greeting")
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+
+        let body = try XCTUnwrap(request.body)
+        let decoded = try JSONDecoder().decode(GreetingPayload.self, from: body)
+        XCTAssertEqual(decoded, GreetingPayload(message: "hello"))
+    }
+
+    func testResponseTextAndDecodedJSON() throws {
+        let payload = try JSONEncoder().encode(GreetingPayload(message: "hello"))
+        let response = GSXResponse(status: 200, body: payload)
+
+        XCTAssertEqual(GSXResponse(status: 200, body: Data("plain".utf8)).text(), "plain")
+        XCTAssertEqual(try response.decodedJSON(GreetingPayload.self), GreetingPayload(message: "hello"))
+    }
+
+    func testBearerAuthTransportAttachesToken() async throws {
+        let base = StaticTransport(response: GSXResponse(status: 200))
+        let transport = GSXBearerAuthTransport(base: base, tokenStore: GSXMemoryTokenStore("token-1"))
+
+        _ = try await transport.send(GSXRequest(path: "/secure"))
+
+        XCTAssertEqual(base.requests.first?.headers["Authorization"], "Bearer token-1")
+    }
+
+    func testBearerAuthTransportPreservesExplicitAuthorization() async throws {
+        let base = StaticTransport(response: GSXResponse(status: 200))
+        let transport = GSXBearerAuthTransport(base: base, tokenStore: GSXMemoryTokenStore("token-1"))
+
+        _ = try await transport.send(GSXRequest(path: "/secure", headers: ["Authorization": "Bearer explicit"]))
+
+        XCTAssertEqual(base.requests.first?.headers["Authorization"], "Bearer explicit")
+    }
+}
+
+private struct GreetingPayload: Codable, Equatable {
+    let message: String
 }
 
 private final class StaticTransport: GSXTransport {

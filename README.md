@@ -13,8 +13,8 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 ## Production Readiness Gaps
 
 - **Source-owned declarations:** `//gosx:route`, `//gosx:data`, and `//gosx:action` directives now generate native support declarations from source; the remaining work is full semantic lowering into NIR instead of directive scanning.
-- **Typed data/action codecs:** generated clients can call HTTP endpoints, but request bodies, response decoding, validation errors, and typed action payloads still need schema-backed generation.
-- **Auth and session plumbing:** token storage, refresh, request signing, and per-route auth policy are not first-class yet.
+- **Typed data/action codecs:** generated clients can call HTTP endpoints and native runtimes now expose JSON request-body and response helpers; validation errors and typed action payloads still need schema-backed generation.
+- **Auth and session plumbing:** native runtimes now include in-memory token stores, bearer-auth transport wrappers, and generated client constructors that accept token stores; secure storage, refresh, request signing, and per-route auth policy are still open.
 - **Native bridge and escape hatches:** project-level native modules and `//gosx:native <target>` implementation checks are still thin.
 - **Dev workflow:** `build --codegen-only` gives fast source regeneration, but file watching, hot reload, and simulator/device targeting still need a dedicated `dev` command.
 - **Release packaging:** signing, flavors/schemes, environment config, store-build defaults, and artifact publishing are not production templates yet.

@@ -12,6 +12,24 @@ public struct GSXRequest: Equatable {
         self.headers = headers
         self.body = body
     }
+
+    public static func json<T: Encodable>(
+        method: String = "POST",
+        path: String,
+        headers: [String: String] = [:],
+        body: T,
+        encoder: JSONEncoder = JSONEncoder()
+    ) throws -> GSXRequest {
+        var requestHeaders = headers
+        if !GSXRequest.hasHeader("Content-Type", in: requestHeaders) {
+            requestHeaders["Content-Type"] = "application/json"
+        }
+        return GSXRequest(method: method, path: path, headers: requestHeaders, body: try encoder.encode(body))
+    }
+
+    private static func hasHeader(_ name: String, in headers: [String: String]) -> Bool {
+        headers.keys.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
 }
 
 public struct GSXResponse: Equatable {
@@ -24,6 +42,14 @@ public struct GSXResponse: Equatable {
         self.headers = headers
         self.body = body
     }
+
+    public func text(encoding: String.Encoding = .utf8) -> String? {
+        String(data: body, encoding: encoding)
+    }
+
+    public func decodedJSON<T: Decodable>(_ type: T.Type = T.self, decoder: JSONDecoder = JSONDecoder()) throws -> T {
+        try decoder.decode(type, from: body)
+    }
 }
 
 public enum GSXDataError: Error, Equatable {
@@ -35,6 +61,54 @@ public enum GSXDataError: Error, Equatable {
 
 public protocol GSXTransport {
     func send(_ request: GSXRequest) async throws -> GSXResponse
+}
+
+public protocol GSXTokenStore {
+    func token() async throws -> String?
+}
+
+public actor GSXMemoryTokenStore: GSXTokenStore {
+    private var currentToken: String?
+
+    public init(_ token: String? = nil) {
+        self.currentToken = token
+    }
+
+    public func token() async throws -> String? {
+        currentToken
+    }
+
+    public func setToken(_ token: String?) {
+        currentToken = token
+    }
+}
+
+public final class GSXBearerAuthTransport: GSXTransport {
+    private let base: any GSXTransport
+    private let tokenStore: any GSXTokenStore
+
+    public init(base: any GSXTransport, tokenStore: any GSXTokenStore) {
+        self.base = base
+        self.tokenStore = tokenStore
+    }
+
+    public func send(_ request: GSXRequest) async throws -> GSXResponse {
+        guard let rawToken = try await tokenStore.token() else {
+            return try await base.send(request)
+        }
+        let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty, !GSXBearerAuthTransport.hasAuthorizationHeader(request.headers) else {
+            return try await base.send(request)
+        }
+
+        var authorized = request
+        authorized.headers["Authorization"] = "Bearer \(token)"
+        return try await base.send(authorized)
+    }
+
+    private static func hasAuthorizationHeader(_ headers: [String: String]) -> Bool {
+        headers.keys.contains { $0.caseInsensitiveCompare("Authorization") == .orderedSame }
+    }
 }
 
 public final class GSXHTTPTransport: GSXTransport {
@@ -115,8 +189,26 @@ public final class GSXDataClient {
         self.init(transport: GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders))
     }
 
+    public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) {
+        self.init(
+            transport: GSXBearerAuthTransport(
+                base: GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders),
+                tokenStore: tokenStore
+            )
+        )
+    }
+
     public convenience init(baseURL: String, defaultHeaders: [String: String] = [:]) throws {
         self.init(transport: try GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders))
+    }
+
+    public convenience init(baseURL: String, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) throws {
+        self.init(
+            transport: GSXBearerAuthTransport(
+                base: try GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders),
+                tokenStore: tokenStore
+            )
+        )
     }
 
     public func load(_ request: GSXRequest) async throws -> GSXResponse {
