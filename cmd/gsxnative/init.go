@@ -441,7 +441,7 @@ func initSwiftObservability() string {
 	return `import GSXNativeKit
 
 enum NativeObservability {
-    static let crashReporter = GSXDiagnosticsCrashReporter()
+    static let crashReporter = GSXRedactingCrashReporter(GSXDiagnosticsCrashReporter())
 
     static func install() {
         GSXCrashReporting.shared.configure(reporter: crashReporter)
@@ -753,9 +753,10 @@ func initAndroidObservability(module string) string {
 
 import com.gosx.nativekit.GSXCrashReporting
 import com.gosx.nativekit.GSXDiagnosticsCrashReporter
+import com.gosx.nativekit.GSXRedactingCrashReporter
 
 object NativeObservability {
-    val crashReporter = GSXDiagnosticsCrashReporter()
+    val crashReporter = GSXRedactingCrashReporter(GSXDiagnosticsCrashReporter())
 
     fun install() {
         GSXCrashReporting.configure(crashReporter)

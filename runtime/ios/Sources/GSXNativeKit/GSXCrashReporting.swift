@@ -81,6 +81,86 @@ public final class GSXMemoryCrashReporter: GSXCrashReporter {
     }
 }
 
+public final class GSXClosureCrashReporter: GSXCrashReporter {
+    private let callback: (GSXCrashReport) -> Void
+
+    public init(_ callback: @escaping (GSXCrashReport) -> Void) {
+        self.callback = callback
+    }
+
+    public func record(_ report: GSXCrashReport) {
+        callback(report)
+    }
+}
+
+public final class GSXCompositeCrashReporter: GSXCrashReporter {
+    private let reporters: [any GSXCrashReporter]
+
+    public init(_ reporters: [any GSXCrashReporter]) {
+        self.reporters = reporters
+    }
+
+    public func record(_ report: GSXCrashReport) {
+        for reporter in reporters {
+            reporter.record(report)
+        }
+    }
+}
+
+public struct GSXCrashRedactionPolicy {
+    public var sensitiveAttributeKeys: Set<String>
+    public var redactedValue: String
+
+    public init(
+        sensitiveAttributeKeys: Set<String> = GSXCrashRedactionPolicy.defaultSensitiveAttributeKeys,
+        redactedValue: String = "<redacted>"
+    ) {
+        self.sensitiveAttributeKeys = sensitiveAttributeKeys
+        self.redactedValue = redactedValue
+    }
+
+    public static let defaultSensitiveAttributeKeys: Set<String> = [
+        "authorization",
+        "cookie",
+        "password",
+        "secret",
+        "session",
+        "token",
+        "api_key",
+        "apikey",
+    ]
+
+    public func sanitized(_ report: GSXCrashReport) -> GSXCrashReport {
+        var sanitized = report
+        sanitized.attributes = report.attributes.reduce(into: [:]) { out, entry in
+            out[entry.key] = isSensitiveAttributeKey(entry.key) ? redactedValue : entry.value
+        }
+        return sanitized
+    }
+
+    public func isSensitiveAttributeKey(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        if sensitiveAttributeKeys.contains(normalized) {
+            return true
+        }
+        return sensitiveAttributeKeys.contains { normalized.contains($0) }
+    }
+}
+
+public final class GSXRedactingCrashReporter: GSXCrashReporter {
+    private let reporter: any GSXCrashReporter
+    private let policy: GSXCrashRedactionPolicy
+
+    public init(_ reporter: any GSXCrashReporter, policy: GSXCrashRedactionPolicy = GSXCrashRedactionPolicy()) {
+        self.reporter = reporter
+        self.policy = policy
+    }
+
+    public func record(_ report: GSXCrashReport) {
+        reporter.record(policy.sanitized(report))
+    }
+}
+
 public final class GSXDiagnosticsCrashReporter: GSXCrashReporter {
     private let diagnostics: any GSXDiagnosticsRecorder
 
@@ -183,6 +263,7 @@ public final class GSXCrashReporting: GSXCrashReporter {
     }
 
     public func installUncaughtExceptionHandler() {
+#if os(iOS) || os(macOS) || os(tvOS) || os(watchOS)
         NSSetUncaughtExceptionHandler { exception in
             GSXCrashReporting.shared.record(GSXCrashReport(
                 name: exception.name.rawValue,
@@ -192,6 +273,7 @@ public final class GSXCrashReporting: GSXCrashReporter {
                 attributes: ["source": "NSUncaughtExceptionHandler"]
             ))
         }
+#endif
     }
 
     private func currentReporter() -> any GSXCrashReporter {

@@ -58,6 +58,54 @@ class GSXMemoryCrashReporter : GSXCrashReporter {
     }
 }
 
+class GSXCompositeCrashReporter(
+    private val reporters: List<GSXCrashReporter>,
+) : GSXCrashReporter {
+    constructor(vararg reporters: GSXCrashReporter) : this(reporters.toList())
+
+    override fun record(report: GSXCrashReport) {
+        reporters.forEach { it.record(report) }
+    }
+}
+
+data class GSXCrashRedactionPolicy(
+    val sensitiveAttributeKeys: Set<String> = defaultSensitiveAttributeKeys,
+    val redactedValue: String = "<redacted>",
+) {
+    fun sanitized(report: GSXCrashReport): GSXCrashReport = report.copy(
+        attributes = report.attributes.mapValues { (key, value) ->
+            if (isSensitiveAttributeKey(key)) redactedValue else value
+        },
+    )
+
+    fun isSensitiveAttributeKey(key: String): Boolean {
+        val normalized = key.lowercase()
+        return sensitiveAttributeKeys.any { normalized == it || normalized.contains(it) }
+    }
+
+    companion object {
+        val defaultSensitiveAttributeKeys: Set<String> = setOf(
+            "authorization",
+            "cookie",
+            "password",
+            "secret",
+            "session",
+            "token",
+            "api_key",
+            "apikey",
+        )
+    }
+}
+
+class GSXRedactingCrashReporter(
+    private val reporter: GSXCrashReporter,
+    private val policy: GSXCrashRedactionPolicy = GSXCrashRedactionPolicy(),
+) : GSXCrashReporter {
+    override fun record(report: GSXCrashReport) {
+        reporter.record(policy.sanitized(report))
+    }
+}
+
 class GSXDiagnosticsCrashReporter(
     private val diagnostics: GSXDiagnosticsRecorder = GSXDiagnostics,
 ) : GSXCrashReporter {

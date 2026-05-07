@@ -257,6 +257,39 @@ final class GSXSignalTests: XCTestCase {
         }
     }
 
+    func testCompositeCrashReporterFansOut() {
+        let first = GSXMemoryCrashReporter()
+        let second = GSXMemoryCrashReporter()
+        let reporter = GSXCompositeCrashReporter([first, second])
+
+        reporter.record(GSXCrashReport(name: "RenderFailure", message: "Render failed"))
+
+        XCTAssertEqual(first.recordedReports().count, 1)
+        XCTAssertEqual(second.recordedReports().count, 1)
+        XCTAssertEqual(first.recordedReports().first?.name, "RenderFailure")
+        XCTAssertEqual(second.recordedReports().first?.name, "RenderFailure")
+    }
+
+    func testRedactingCrashReporterScrubsSensitiveAttributes() throws {
+        let memory = GSXMemoryCrashReporter()
+        let reporter = GSXRedactingCrashReporter(memory)
+
+        reporter.record(GSXCrashReport(
+            name: "AuthFailure",
+            message: "Auth failed",
+            attributes: [
+                "Authorization": "Bearer private-token",
+                "route": "home",
+                "session_id": "private-session",
+            ]
+        ))
+
+        let report = try XCTUnwrap(memory.recordedReports().first)
+        XCTAssertEqual(report.attributes["Authorization"], "<redacted>")
+        XCTAssertEqual(report.attributes["session_id"], "<redacted>")
+        XCTAssertEqual(report.attributes["route"], "home")
+    }
+
     func testDataClientDecodesValidationFailures() async {
         let body = Data(#"{"message":"Invalid","field_errors":{"email":"Required"},"values":{"email":""}}"#.utf8)
         let transport = StaticTransport(response: GSXResponse(status: 422, body: body))
