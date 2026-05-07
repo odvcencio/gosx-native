@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import WebKit
 
 public enum GSXScene3DBackend: String {
     case native
@@ -256,14 +257,15 @@ public struct GSXScene3DView: View {
                 }
 
                 ForEach(scene.htmlOverlays) { overlay in
-                    Text(overlay.plainText)
-                        .font(.caption)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.58))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    GSXScene3DHTMLOverlayView(overlay: overlay)
+                        .frame(
+                            width: max(CGFloat(overlay.width) * 96, 80),
+                            height: max(CGFloat(overlay.height) * 72, 32)
+                        )
                         .opacity(max(0, min(overlay.opacity, 1)))
+                        .allowsHitTesting(overlay.pointerEvents.lowercased() != "none")
+                        .accessibilityLabel(overlay.plainText)
+                        .accessibilityIdentifier("Scene3DHtml.\(overlay.id)")
                         .position(
                             x: proxy.size.width * 0.5 + CGFloat(overlay.x) * 36 + CGFloat(overlay.offsetX),
                             y: proxy.size.height * 0.5 - CGFloat(overlay.y) * 36 + CGFloat(overlay.z) * 4 + CGFloat(overlay.offsetY)
@@ -275,6 +277,80 @@ public struct GSXScene3DView: View {
         .accessibilityLabel("Scene3D")
         .accessibilityIdentifier("Scene3D")
     }
+}
+
+#if os(iOS)
+private struct GSXScene3DHTMLOverlayView: UIViewRepresentable {
+    let overlay: GSXScene3DHTMLOverlay
+
+    func makeUIView(context: Context) -> WKWebView {
+        makeWebView()
+    }
+
+    func updateUIView(_ view: WKWebView, context: Context) {
+        configure(view)
+    }
+
+    private func makeWebView() -> WKWebView {
+        let view = WKWebView(frame: .zero)
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.scrollView.backgroundColor = .clear
+        view.scrollView.isScrollEnabled = false
+        view.scrollView.bounces = false
+        return view
+    }
+
+    private func configure(_ view: WKWebView) {
+        view.isUserInteractionEnabled = overlay.pointerEvents.lowercased() != "none"
+        view.loadHTMLString(wrappedSceneHTML(overlay.html), baseURL: nil)
+    }
+}
+#elseif os(macOS)
+private struct GSXScene3DHTMLOverlayView: NSViewRepresentable {
+    let overlay: GSXScene3DHTMLOverlay
+
+    func makeNSView(context: Context) -> WKWebView {
+        makeWebView()
+    }
+
+    func updateNSView(_ view: WKWebView, context: Context) {
+        configure(view)
+    }
+
+    private func makeWebView() -> WKWebView {
+        let view = WKWebView(frame: .zero)
+        view.setValue(false, forKey: "drawsBackground")
+        return view
+    }
+
+    private func configure(_ view: WKWebView) {
+        view.loadHTMLString(wrappedSceneHTML(overlay.html), baseURL: nil)
+    }
+}
+#endif
+
+private func wrappedSceneHTML(_ html: String) -> String {
+    """
+    <!doctype html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: transparent;
+          color: white;
+          font: -apple-system-caption1;
+          overflow: hidden;
+        }
+        body { display: inline-block; }
+      </style>
+    </head>
+    <body>\(html)</body>
+    </html>
+    """
 }
 
 private struct GSXScene3DCanvasSurface: View {

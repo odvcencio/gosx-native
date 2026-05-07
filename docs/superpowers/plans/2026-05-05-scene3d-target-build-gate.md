@@ -33,5 +33,5 @@ Make Scene3D visible in the native compiler path before implementing a renderer 
 - Harden the native GPU bridge into full renderer-grade `scene.IR` parity, including a final Metal/Vulkan/Filament decision if SceneKit/OpenGL ES is not sufficient.
 - Replace Canvas-level post-fx placeholders with renderer-grade post-fx passes in the native backends.
 - Replace compute-particle placeholders with real GPU compute in the native backends.
-- Replace native text extraction for `<Html>` with renderer-backed DOM/WebView overlay semantics.
+- `<Html>` overlays now render through WKWebView/WebView-backed native overlay views instead of plain text extraction; remaining fidelity work is layout/picking parity against the web renderer.
 - Promote screenshot pixel smoke to fixture-level native render-output golden conformance.

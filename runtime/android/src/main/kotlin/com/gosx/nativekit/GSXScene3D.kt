@@ -1,17 +1,20 @@
 package com.gosx.nativekit
 
+import android.graphics.Color as AndroidColor
+import android.view.View
+import android.webkit.WebView
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -21,10 +24,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -137,8 +139,8 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
             GSXScene3DCanvasSurface(scene = scene, modifier = Modifier.fillMaxSize())
         }
         scene.htmlOverlays.forEach { overlay ->
-            BasicText(
-                text = plainSceneHTMLText(overlay.html),
+            GSXScene3DHTMLOverlayView(
+                overlay = overlay,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .offset {
@@ -147,13 +149,61 @@ fun GSXScene3D(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
                             y = (-overlay.y * 36.0 + overlay.z * 4.0 + overlay.offsetY).roundToInt(),
                         )
                     }
-                    .background(Color.Black.copy(alpha = 0.58f))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                style = TextStyle(color = Color.White.copy(alpha = overlay.opacity.coerceIn(0.0, 1.0).toFloat()), fontSize = 12.sp),
+                    .width(max(overlay.width * 96.0, 80.0).toFloat().dp)
+                    .height(max(overlay.height * 72.0, 32.0).toFloat().dp)
+                    .alpha(overlay.opacity.coerceIn(0.0, 1.0).toFloat())
+                    .semantics { contentDescription = plainSceneHTMLText(overlay.html) }
+                    .testTag("Scene3DHtml.${overlay.id}"),
             )
         }
     }
 }
+
+@Composable
+private fun GSXScene3DHTMLOverlayView(overlay: GSXScene3DHTMLOverlay, modifier: Modifier = Modifier) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            WebView(context).apply {
+                setBackgroundColor(AndroidColor.TRANSPARENT)
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                settings.javaScriptEnabled = false
+                settings.loadWithOverviewMode = true
+                settings.useWideViewPort = false
+            }
+        },
+        update = { view ->
+            val interactive = overlay.pointerEvents.lowercase() != "none"
+            view.isEnabled = interactive
+            view.isClickable = interactive
+            view.isFocusable = interactive
+            view.loadDataWithBaseURL(null, wrappedSceneHTML(overlay.html), "text/html", "UTF-8", null)
+        },
+    )
+}
+
+private fun wrappedSceneHTML(html: String): String = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: transparent;
+          color: white;
+          font: 12px sans-serif;
+          overflow: hidden;
+        }
+        body { display: inline-block; }
+      </style>
+    </head>
+    <body>$html</body>
+    </html>
+""".trimIndent()
 
 @Composable
 private fun GSXScene3DCanvasSurface(scene: GSXScene3DScene, modifier: Modifier = Modifier) {
