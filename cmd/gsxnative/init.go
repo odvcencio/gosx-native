@@ -14,6 +14,7 @@ import (
 
 	"github.com/odvcencio/gosx-native/emit/android"
 	"github.com/odvcencio/gosx-native/emit/ios"
+	"github.com/odvcencio/gosx-native/target"
 )
 
 type initOptions struct {
@@ -145,7 +146,9 @@ func scaffoldProject(opts initOptions) error {
 	androidDir := filepath.Join(opts.dir, "android")
 	sourcePath := filepath.Join(opts.dir, "src/app.gsx")
 	iosOutput := filepath.Join(iosDir, opts.name, "Generated/App.g.swift")
+	iosSupportOutput := filepath.Join(iosDir, opts.name, "Generated/GSXDeclarations.g.swift")
 	androidOutput := filepath.Join(androidDir, "app/src/main/kotlin/generated/App.kt")
+	androidSupportOutput := filepath.Join(androidDir, "app/src/main/kotlin/generated/GSXDeclarations.kt")
 
 	source := initGoSXSource(goPackageName(opts.name))
 	if err := writeInitFile(sourcePath, source, opts.force); err != nil {
@@ -156,20 +159,31 @@ func scaffoldProject(opts initOptions) error {
 	if err != nil {
 		return err
 	}
+	projectCfg := initProjectConfig(opts, sourcePath, iosDir, iosOutput, iosSupportOutput, androidDir, androidOutput, androidSupportOutput)
+	swiftDeclarations, err := emitDeclarationSupport(target.IOS, &projectCfg)
+	if err != nil {
+		return err
+	}
+	kotlinDeclarations, err := emitDeclarationSupport(target.Android, &projectCfg)
+	if err != nil {
+		return err
+	}
 
 	files := map[string]string{
 		filepath.Join(opts.dir, "README.md"):                    initReadme(opts.name),
-		filepath.Join(opts.dir, "gosxnative.json"):              initConfig(opts, sourcePath, iosDir, iosOutput, androidDir, androidOutput),
+		filepath.Join(opts.dir, "gosxnative.json"):              initConfig(projectCfg),
 		filepath.Join(iosDir, "project.yml"):                    initXcodeGenProject(opts, iosDir),
 		filepath.Join(iosDir, opts.name, opts.name+"App.swift"): initSwiftApp(opts.name),
-		iosOutput: swiftSource,
+		iosOutput:        swiftSource,
+		iosSupportOutput: string(swiftDeclarations),
 		filepath.Join(androidDir, "settings.gradle.kts"):                                              initAndroidSettings(opts, androidDir),
 		filepath.Join(androidDir, "build.gradle.kts"):                                                 initAndroidRootBuild(),
 		filepath.Join(androidDir, "app/build.gradle.kts"):                                             initAndroidAppBuild(opts),
 		filepath.Join(androidDir, "app/src/main/AndroidManifest.xml"):                                 initAndroidManifest(opts.module),
 		filepath.Join(androidDir, "app/src/main/res/values/styles.xml"):                               initAndroidStyles(opts.name),
 		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "MainActivity.kt"): initAndroidMainActivity(opts),
-		androidOutput: kotlinSource,
+		androidOutput:        kotlinSource,
+		androidSupportOutput: string(kotlinDeclarations),
 	}
 	for path, data := range files {
 		if err := writeInitFile(path, data, opts.force); err != nil {
@@ -250,22 +264,37 @@ func SceneDemo(props SceneDemoProps) Node {
 `, pkg)
 }
 
-func initConfig(opts initOptions, sourcePath, iosDir, iosOutput, androidDir, androidOutput string) string {
-	cfg := projectConfig{
+func initProjectConfig(opts initOptions, sourcePath, iosDir, iosOutput, iosSupportOutput, androidDir, androidOutput, androidSupportOutput string) projectConfig {
+	return projectConfig{
 		Name:   opts.name,
 		Module: opts.module,
 		Source: relSlash(opts.dir, sourcePath),
 		IOS: projectTargetConfig{
-			Project:      relSlash(opts.dir, iosDir),
-			Output:       relSlash(opts.dir, iosOutput),
-			XcodeProject: opts.name,
-			Scheme:       opts.name,
+			Project:       relSlash(opts.dir, iosDir),
+			Output:        relSlash(opts.dir, iosOutput),
+			SupportOutput: relSlash(opts.dir, iosSupportOutput),
+			XcodeProject:  opts.name,
+			Scheme:        opts.name,
 		},
 		Android: projectTargetConfig{
-			Project: relSlash(opts.dir, androidDir),
-			Output:  relSlash(opts.dir, androidOutput),
+			Project:       relSlash(opts.dir, androidDir),
+			Output:        relSlash(opts.dir, androidOutput),
+			SupportOutput: relSlash(opts.dir, androidSupportOutput),
+		},
+		Routes: []routeDeclaration{
+			{Name: "home", Path: "/", Component: "Home"},
+			{Name: "details", Path: "/details/:id", Component: "Home", Params: []paramDeclaration{{Name: "id", Type: "string"}}},
+		},
+		DataLoaders: []endpointDeclaration{
+			{Name: "loadGreeting", Method: "GET", Path: "/api/greeting"},
+		},
+		Actions: []endpointDeclaration{
+			{Name: "submitGreeting", Method: "POST", Path: "/api/greeting"},
 		},
 	}
+}
+
+func initConfig(cfg projectConfig) string {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		panic(err)
@@ -330,7 +359,7 @@ import GSXNativeKit
 
 @main
 struct %sApp: SwiftUI.App {
-    @StateObject private var router = GSXRouter(initial: GSXRoute("home"))
+    @StateObject private var router = GSXRouter(initial: GSXRoutes.home)
 
     var body: some Scene {
         WindowGroup {
@@ -338,10 +367,10 @@ struct %sApp: SwiftUI.App {
                 HStack(spacing: 12) {
                     Text("Route: \(router.current.name)")
                     Button("Details") {
-                        router.push(GSXRoute("details", params: ["id": "1"]))
+                        router.push(GSXRoutes.details(id: "1"))
                     }
                     Button("Home") {
-                        router.reset(to: GSXRoute("home"))
+                        router.reset(to: GSXRoutes.home)
                     }
                 }
                 Home(props: .init(title: "%s"))
@@ -469,8 +498,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
-import com.gosx.nativekit.GSXRoute
 import com.gosx.nativekit.rememberGSXRouter
+import generated.GSXRoutes
 import generated.Home
 import generated.HomeProps
 import generated.SceneDemo
@@ -481,13 +510,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                val router = rememberGSXRouter(GSXRoute("home"))
+                val router = rememberGSXRouter(GSXRoutes.home)
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(text = "Route: ${router.current.name}")
-                    Button(onClick = { router.push(GSXRoute("details", mapOf("id" to "1"))) }) {
+                    Button(onClick = { router.push(GSXRoutes.details(id = "1")) }) {
                         Text(text = "Details")
                     }
-                    Button(onClick = { router.reset(GSXRoute("home")) }) {
+                    Button(onClick = { router.reset(GSXRoutes.home) }) {
                         Text(text = "Home")
                     }
                     Home(HomeProps(title = "%s"))

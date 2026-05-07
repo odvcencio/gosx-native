@@ -69,24 +69,48 @@ type buildOptions struct {
 	release          bool
 	gradleTasks      stringList
 	gradleProperties stringList
+	projectConfig    *projectConfig
+	projectBaseDir   string
 }
 
 type projectConfig struct {
-	Name    string              `json:"name"`
-	Module  string              `json:"module"`
-	Source  string              `json:"source"`
-	IOS     projectTargetConfig `json:"ios"`
-	Android projectTargetConfig `json:"android"`
+	Name        string                `json:"name"`
+	Module      string                `json:"module"`
+	Source      string                `json:"source"`
+	IOS         projectTargetConfig   `json:"ios"`
+	Android     projectTargetConfig   `json:"android"`
+	Routes      []routeDeclaration    `json:"routes,omitempty"`
+	DataLoaders []endpointDeclaration `json:"data_loaders,omitempty"`
+	Actions     []endpointDeclaration `json:"actions,omitempty"`
 }
 
 type projectTargetConfig struct {
 	Project          string   `json:"project"`
 	Output           string   `json:"output"`
+	SupportOutput    string   `json:"support_output,omitempty"`
 	XcodeProject     string   `json:"xcode_project,omitempty"`
 	Scheme           string   `json:"scheme,omitempty"`
 	Simulator        string   `json:"simulator,omitempty"`
 	GradleTasks      []string `json:"gradle_tasks,omitempty"`
 	GradleProperties []string `json:"gradle_properties,omitempty"`
+}
+
+type routeDeclaration struct {
+	Name      string             `json:"name"`
+	Path      string             `json:"path"`
+	Component string             `json:"component"`
+	Params    []paramDeclaration `json:"params,omitempty"`
+}
+
+type endpointDeclaration struct {
+	Name   string `json:"name"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+}
+
+type paramDeclaration struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 func runBuild(args []string) error {
@@ -190,6 +214,8 @@ func applyBuildProjectConfig(opts *buildOptions, targetName string) error {
 	if !ok {
 		return nil
 	}
+	opts.projectConfig = cfg
+	opts.projectBaseDir = baseDir
 	if opts.source == "" && cfg.Source != "" {
 		opts.source = resolveConfigPath(baseDir, cfg.Source)
 	}
@@ -307,6 +333,9 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 	if err := target.Validate(mod, tgt); err != nil {
 		return err
 	}
+	if err := validateProjectDeclarations(opts.projectConfig, mod); err != nil {
+		return err
+	}
 	source, err := emitNativeSource(tgt, mod)
 	if err != nil {
 		return err
@@ -316,6 +345,18 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 	}
 	if err := os.WriteFile(cfg.output, source, 0644); err != nil {
 		return err
+	}
+	if cfg.supportOutput != "" && cfg.projectConfig != nil {
+		support, err := emitDeclarationSupport(tgt, cfg.projectConfig)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(cfg.supportOutput), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(cfg.supportOutput, support, 0644); err != nil {
+			return err
+		}
 	}
 	switch tgt {
 	case target.Android:
@@ -330,6 +371,7 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 type nativeBuild struct {
 	source           string
 	output           string
+	supportOutput    string
 	project          string
 	xcodeProject     string
 	scheme           string
@@ -337,6 +379,7 @@ type nativeBuild struct {
 	release          bool
 	gradleTasks      []string
 	gradleProperties []string
+	projectConfig    *projectConfig
 }
 
 func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativeBuild, error) {
@@ -348,14 +391,21 @@ func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativ
 		release:          opts.release,
 		gradleTasks:      append([]string(nil), opts.gradleTasks...),
 		gradleProperties: append([]string(nil), opts.gradleProperties...),
+		projectConfig:    opts.projectConfig,
 	}
 	switch tgt {
 	case target.Android:
 		cfg.project = firstNonEmpty(opts.androidProject, opts.project, repoDefault(root, "examples/counter-android"))
 		cfg.output = firstNonEmpty(opts.androidOutput, opts.output, filepath.Join(cfg.project, "app/src/main/kotlin/generated/Counter.kt"))
+		if opts.projectConfig != nil {
+			cfg.supportOutput = resolveConfigPath(opts.projectBaseDir, firstNonEmpty(opts.projectConfig.Android.SupportOutput, defaultSupportOutput(tgt, cfg.output)))
+		}
 	case target.IOS:
 		cfg.project = firstNonEmpty(opts.iosProject, opts.project, repoDefault(root, "examples/counter-ios"))
 		cfg.output = firstNonEmpty(opts.iosOutput, opts.output, filepath.Join(cfg.project, "CounterDemo/Generated/Counter.swift"))
+		if opts.projectConfig != nil {
+			cfg.supportOutput = resolveConfigPath(opts.projectBaseDir, firstNonEmpty(opts.projectConfig.IOS.SupportOutput, defaultSupportOutput(tgt, cfg.output)))
+		}
 	}
 	if cfg.source == "" {
 		return nativeBuild{}, fmt.Errorf("missing source; pass --source or run from a directory with gosxnative.json")

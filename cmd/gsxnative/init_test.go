@@ -16,11 +16,15 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "func Home(props HomeProps) Node")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
-	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "GSXRouter(initial: GSXRoute(\"home\"))")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "GSXRouter(initial: GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/App.g.swift"), "public struct Home: GSXComponent")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXRoutes")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func loadGreeting() async throws -> GSXResponse")
 	assertFileContains(t, filepath.Join(dir, "android/settings.gradle.kts"), "project(\":gsx-nativekit\").projectDir")
-	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/MainActivity.kt"), "rememberGSXRouter(GSXRoute(\"home\"))")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/MainActivity.kt"), "rememberGSXRouter(GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/App.kt"), "fun Home(props: HomeProps)")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXRoutes")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "suspend fun loadGreeting(): GSXResponse")
 
 	var cfg projectConfig
 	data, err := os.ReadFile(filepath.Join(dir, "gosxnative.json"))
@@ -30,7 +34,8 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse config: %v", err)
 	}
-	if cfg.Source != "src/app.gsx" || cfg.IOS.Scheme != "SampleApp" || cfg.Android.Project != "android" {
+	if cfg.Source != "src/app.gsx" || cfg.IOS.SupportOutput == "" || cfg.Android.SupportOutput == "" ||
+		len(cfg.Routes) != 2 || len(cfg.DataLoaders) != 1 || len(cfg.Actions) != 1 {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 }
@@ -73,6 +78,7 @@ func TestBuildUsesDiscoveredProjectConfig(t *testing.T) {
 
 	generated := filepath.Join(dir, "android/app/src/main/kotlin/generated/App.kt")
 	assertFileContains(t, generated, "GSXScene3D(scene = GSXScene3DScene(")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "class GSXGeneratedActionClient")
 	if len(fake.commands) != 1 {
 		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
 	}
@@ -113,6 +119,44 @@ func TestBuildIOSUsesDiscoveredProjectConfig(t *testing.T) {
 	if !strings.Contains(joinedArgs, filepath.Join(dir, "ios", "SampleApp.xcodeproj")) ||
 		!strings.Contains(joinedArgs, "-scheme SampleApp") {
 		t.Fatalf("unexpected xcodebuild args: %q", joinedArgs)
+	}
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public final class GSXGeneratedActionClient")
+}
+
+func TestBuildValidatesRouteComponents(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	dir := filepath.Join(t.TempDir(), "sample-app")
+	if err := runInit([]string{"--name", "SampleApp", "--module", "com.example.sample", dir}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	configPath := filepath.Join(dir, "gosxnative.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var cfg projectConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.Routes[0].Component = "Missing"
+	updated, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, append(updated, '\n'), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err = runBuild([]string{"android", "--config", configPath})
+	if err == nil {
+		t.Fatalf("expected route validation error")
+	}
+	if !strings.Contains(err.Error(), `route home references unknown component "Missing"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fake.commands) != 0 {
+		t.Fatalf("expected no native build commands, got %#v", fake.commands)
 	}
 }
 
