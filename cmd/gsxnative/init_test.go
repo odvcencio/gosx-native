@@ -228,7 +228,7 @@ func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse config: %v", err)
 	}
-	cfg.Routes = []routeDeclaration{{Name: "legacyHome", Path: "/", Component: "Home"}}
+	cfg.Routes = []routeDeclaration{{Name: "legacyHome", Path: "/", Component: "Home", Auth: "required"}}
 	cfg.DataLoaders = []endpointDeclaration{{Name: "legacyLoad", Method: "GET", Path: "/api/legacy"}}
 	cfg.Capabilities = []capabilityDeclaration{{Name: "secureStorage", Targets: []string{"ios"}, Required: true}}
 	cfg.Bridges = []bridgeDeclaration{{
@@ -251,6 +251,7 @@ func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
 		t.Fatalf("build from config declarations: %v", err)
 	}
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXGeneratedRouteSpec(name: "legacyHome"`)
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `auth: GSXAuthRequirement.required`)
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func legacyLoad() async throws -> GSXResponse")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXGeneratedCapabilitySpec(name: "secureStorage", targets: ["ios"], required: true)`)
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func legacyVaultEcho(message: String) async throws -> GSXGeneratedBridgeLegacyVaultEchoResponse")
@@ -259,7 +260,7 @@ func TestBuildUsesConfigDeclarationsWhenSourceHasNone(t *testing.T) {
 func TestParseSourceDeclarations(t *testing.T) {
 	decls, err := parseSourceDeclarations([]byte(`
 //gosx:route name=home path=/ component=Home
-//gosx:route name=details path=/details/:id component=Home params=id:string,count:int
+//gosx:route name=details path=/details/:id component=Home params=id:string,count:int auth=required
 //gosx:data name=loadGreeting method=GET path=/api/greeting params=locale:string output=message:string ttl=45s retry=2 auth=optional
 //gosx:action name=submitGreeting method=POST path=/api/greeting input=message:string output=message:string invalidates=loadGreeting optimistic=echo auth=required retry=3
 //gosx:capability name=network targets=ios,android required=true
@@ -275,6 +276,9 @@ func TestParseSourceDeclarations(t *testing.T) {
 	}
 	if got := decls.Routes[1].Params; len(got) != 2 || got[0].Name != "id" || got[1].Type != "int" {
 		t.Fatalf("unexpected params: %#v", got)
+	}
+	if decls.Routes[1].Auth != "required" {
+		t.Fatalf("unexpected route auth: %#v", decls.Routes[1])
 	}
 	if loader := decls.DataLoaders[0]; len(loader.Params) != 1 || len(loader.Output) != 1 ||
 		loader.CacheTTLSeconds != 45 || loader.RetryAttempts != 2 || loader.Auth != "optional" {
@@ -296,6 +300,13 @@ func TestParseSourceDeclarations(t *testing.T) {
 
 func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	cfg := &projectConfig{
+		Routes: []routeDeclaration{{
+			Name:      "profile",
+			Path:      "/users/:id/profile",
+			Component: "Profile",
+			Params:    []paramDeclaration{{Name: "id", Type: "string"}},
+			Auth:      "required",
+		}},
 		DataLoaders: []endpointDeclaration{{
 			Name:            "loadProfile",
 			Method:          "GET",
@@ -323,6 +334,9 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	if !strings.Contains(swift, `GSXRequest.resolvedPath("/api/users/:id/profile", params: ["id": id, "includePosts": String(includePosts)])`) {
 		t.Fatalf("expected Swift path parameter lowering, got:\n%s", swift)
 	}
+	if !strings.Contains(swift, `auth: GSXAuthRequirement.required`) {
+		t.Fatalf("expected Swift route auth metadata, got:\n%s", swift)
+	}
 	if !strings.Contains(swift, "public func loadProfile(id: String, includePosts: Bool) async throws -> GSXGeneratedDataLoadProfileResponse") {
 		t.Fatalf("expected Swift typed loader signature, got:\n%s", swift)
 	}
@@ -333,6 +347,9 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	kotlin := string(emitKotlinDeclarations(cfg))
 	if !strings.Contains(kotlin, `GSXRequest.resolvedPath("/api/users/:id/profile", params = mapOf("id" to id, "includePosts" to includePosts.toString()))`) {
 		t.Fatalf("expected Kotlin path parameter lowering, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, `auth = GSXAuthRequirement.Required`) {
+		t.Fatalf("expected Kotlin route auth metadata, got:\n%s", kotlin)
 	}
 	if !strings.Contains(kotlin, "suspend fun saveProfile(id: String, displayName: String): GSXGeneratedActionSaveProfileResponse") {
 		t.Fatalf("expected Kotlin typed action signature, got:\n%s", kotlin)

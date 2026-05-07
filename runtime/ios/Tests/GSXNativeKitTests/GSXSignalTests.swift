@@ -45,6 +45,18 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(router.stack, [GSXRoute("home")])
     }
 
+    func testRouterGuardRedirectsProtectedRoutes() {
+        let router = GSXRouter(
+            initial: GSXRoute("home"),
+            routeGuard: GSXAuthRouteGuard(redirect: GSXRoute("login"), isAuthenticated: { false })
+        )
+
+        let allowed = router.push(GSXRoute("settings", auth: .required))
+
+        XCTAssertFalse(allowed)
+        XCTAssertEqual(router.current, GSXRoute("login"))
+    }
+
     func testDataClientReturnsSuccessfulResponses() async throws {
         let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("ok".utf8)))
         let client = GSXDataClient(transport: transport)

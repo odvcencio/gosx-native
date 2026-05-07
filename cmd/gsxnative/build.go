@@ -103,6 +103,7 @@ type routeDeclaration struct {
 	Path      string             `json:"path"`
 	Component string             `json:"component"`
 	Params    []paramDeclaration `json:"params,omitempty"`
+	Auth      string             `json:"auth,omitempty"`
 }
 
 type endpointDeclaration struct {

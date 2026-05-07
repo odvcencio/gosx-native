@@ -47,6 +47,9 @@ func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
 			return fmt.Errorf("duplicate route declaration %q", route.Name)
 		}
 		seenRoutes[route.Name] = true
+		if _, err := parseSourceAuth(route.Auth); err != nil {
+			return fmt.Errorf("route %s has invalid auth policy: %w", route.Name, err)
+		}
 		for _, param := range route.Params {
 			if !identifierPattern.MatchString(param.Name) {
 				return fmt.Errorf("route %s has invalid param %q", route.Name, param.Name)
@@ -228,10 +231,14 @@ func sourceRouteDeclaration(fields map[string][]string) (routeDeclaration, error
 	if err := requireDeclarationFields("route", fields, "name", "path", "component"); err != nil {
 		return routeDeclaration{}, err
 	}
-	if err := rejectUnknownDeclarationFields("route", fields, "name", "path", "component", "params", "param"); err != nil {
+	if err := rejectUnknownDeclarationFields("route", fields, "name", "path", "component", "params", "param", "auth"); err != nil {
 		return routeDeclaration{}, err
 	}
 	params, err := parseSourceParams(append(fields["params"], fields["param"]...))
+	if err != nil {
+		return routeDeclaration{}, err
+	}
+	auth, err := parseSourceAuth(firstField(fields, "auth"))
 	if err != nil {
 		return routeDeclaration{}, err
 	}
@@ -240,6 +247,7 @@ func sourceRouteDeclaration(fields map[string][]string) (routeDeclaration, error
 		Path:      firstField(fields, "path"),
 		Component: firstField(fields, "component"),
 		Params:    params,
+		Auth:      auth,
 	}, nil
 }
 
@@ -723,13 +731,14 @@ func emitSwiftDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf, "    public let path: String")
 	fmt.Fprintln(&buf, "    public let component: String")
 	fmt.Fprintln(&buf, "    public let params: [String]")
+	fmt.Fprintln(&buf, "    public let auth: GSXAuthRequirement")
 	fmt.Fprintln(&buf, "}")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "public enum GSXRoutes {")
 	fmt.Fprintln(&buf, "    public static let specs: [GSXGeneratedRouteSpec] = [")
 	for _, route := range cfg.Routes {
-		fmt.Fprintf(&buf, "        GSXGeneratedRouteSpec(name: %s, path: %s, component: %s, params: %s),\n",
-			strconv.Quote(route.Name), strconv.Quote(route.Path), strconv.Quote(route.Component), swiftStringArray(paramNames(route.Params)))
+		fmt.Fprintf(&buf, "        GSXGeneratedRouteSpec(name: %s, path: %s, component: %s, params: %s, auth: %s),\n",
+			strconv.Quote(route.Name), strconv.Quote(route.Path), strconv.Quote(route.Component), swiftStringArray(paramNames(route.Params)), swiftAuthRequirement(route.Auth))
 	}
 	fmt.Fprintln(&buf, "    ]")
 	if len(cfg.Routes) > 0 {
@@ -796,7 +805,7 @@ func emitSwiftGeneratedSpecs(buf *bytes.Buffer) {
 func emitSwiftRoute(buf *bytes.Buffer, route routeDeclaration) {
 	name := swiftIdentifier(route.Name)
 	if len(route.Params) == 0 {
-		fmt.Fprintf(buf, "    public static let %s = GSXRoute(%s)\n", name, strconv.Quote(route.Name))
+		fmt.Fprintf(buf, "    public static let %s = GSXRoute(%s, auth: %s)\n", name, strconv.Quote(route.Name), swiftAuthRequirement(route.Auth))
 		return
 	}
 	fmt.Fprintf(buf, "    public static func %s(%s) -> GSXRoute {\n", name, swiftParamList(route.Params))
@@ -806,7 +815,8 @@ func emitSwiftRoute(buf *bytes.Buffer, route routeDeclaration) {
 	for _, param := range route.Params {
 		fmt.Fprintf(buf, "                %s: %s,\n", strconv.Quote(param.Name), swiftStringValue(param.Name, param.Type))
 	}
-	fmt.Fprintln(buf, "            ]")
+	fmt.Fprintln(buf, "            ],")
+	fmt.Fprintf(buf, "            auth: %s\n", swiftAuthRequirement(route.Auth))
 	fmt.Fprintln(buf, "        )")
 	fmt.Fprintln(buf, "    }")
 }
@@ -1074,13 +1084,14 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf, "    val path: String,")
 	fmt.Fprintln(&buf, "    val component: String,")
 	fmt.Fprintln(&buf, "    val params: List<String> = emptyList(),")
+	fmt.Fprintln(&buf, "    val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,")
 	fmt.Fprintln(&buf, ")")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "object GSXRoutes {")
 	fmt.Fprintln(&buf, "    val specs: List<GSXGeneratedRouteSpec> = listOf(")
 	for _, route := range cfg.Routes {
-		fmt.Fprintf(&buf, "        GSXGeneratedRouteSpec(name = %s, path = %s, component = %s, params = %s),\n",
-			strconv.Quote(route.Name), strconv.Quote(route.Path), strconv.Quote(route.Component), kotlinStringList(paramNames(route.Params)))
+		fmt.Fprintf(&buf, "        GSXGeneratedRouteSpec(name = %s, path = %s, component = %s, params = %s, auth = %s),\n",
+			strconv.Quote(route.Name), strconv.Quote(route.Path), strconv.Quote(route.Component), kotlinStringList(paramNames(route.Params)), kotlinAuthRequirement(route.Auth))
 	}
 	fmt.Fprintln(&buf, "    )")
 	if len(cfg.Routes) > 0 {
@@ -1147,7 +1158,7 @@ func emitKotlinGeneratedSpecs(buf *bytes.Buffer) {
 func emitKotlinRoute(buf *bytes.Buffer, route routeDeclaration) {
 	name := kotlinIdentifier(route.Name)
 	if len(route.Params) == 0 {
-		fmt.Fprintf(buf, "    val %s: GSXRoute = GSXRoute(%s)\n", name, strconv.Quote(route.Name))
+		fmt.Fprintf(buf, "    val %s: GSXRoute = GSXRoute(%s, auth = %s)\n", name, strconv.Quote(route.Name), kotlinAuthRequirement(route.Auth))
 		return
 	}
 	fmt.Fprintf(buf, "    fun %s(%s): GSXRoute = GSXRoute(\n", name, kotlinParamList(route.Params))
@@ -1157,6 +1168,7 @@ func emitKotlinRoute(buf *bytes.Buffer, route routeDeclaration) {
 		fmt.Fprintf(buf, "            %s to %s,\n", strconv.Quote(param.Name), kotlinStringValue(param.Name, param.Type))
 	}
 	fmt.Fprintln(buf, "        ),")
+	fmt.Fprintf(buf, "        auth = %s,\n", kotlinAuthRequirement(route.Auth))
 	fmt.Fprintln(buf, "    )")
 }
 
