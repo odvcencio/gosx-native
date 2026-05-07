@@ -70,6 +70,72 @@ final class GSXSignalTests: XCTestCase {
         }
     }
 
+    func testRequestResolvesPathParamsAndQueryParams() {
+        let path = GSXRequest.resolvedPath("/users/:id/posts", params: [
+            "id": "user 1",
+            "after": "cursor+next",
+        ])
+
+        XCTAssertEqual(path, "/users/user%201/posts?after=cursor%2Bnext")
+    }
+
+    func testDataClientCachesAndInvalidatesNamedLoaders() async throws {
+        let first = GSXResponse(status: 200, body: Data("first".utf8))
+        let submit = GSXResponse(status: 200, body: Data("submitted".utf8))
+        let second = GSXResponse(status: 200, body: Data("second".utf8))
+        let transport = SequenceTransport(responses: [first, submit, second])
+        let client = GSXDataClient(transport: transport)
+        let policy = GSXRequestPolicy(name: "loadGreeting", cacheTTLSeconds: 60)
+
+        let cachedFirst = try await client.load(GSXRequest(path: "/greeting"), policy: policy)
+        let cachedSecond = try await client.load(GSXRequest(path: "/greeting"), policy: policy)
+
+        XCTAssertEqual(cachedFirst.body, Data("first".utf8))
+        XCTAssertEqual(cachedSecond.body, Data("first".utf8))
+        XCTAssertEqual(transport.requests.count, 1)
+
+        _ = try await client.submit(
+            GSXRequest(method: "POST", path: "/greeting"),
+            policy: GSXRequestPolicy(name: "submitGreeting", invalidates: ["loadGreeting"])
+        )
+        let refreshed = try await client.load(GSXRequest(path: "/greeting"), policy: policy)
+
+        XCTAssertEqual(refreshed.body, Data("second".utf8))
+        XCTAssertEqual(transport.requests.count, 3)
+    }
+
+    func testDataClientRetriesTransientResponses() async throws {
+        let transport = SequenceTransport(responses: [
+            GSXResponse(status: 500, body: Data("retry".utf8)),
+            GSXResponse(status: 200, body: Data("ok".utf8)),
+        ])
+        let client = GSXDataClient(transport: transport)
+
+        let response = try await client.load(
+            GSXRequest(path: "/unstable"),
+            policy: GSXRequestPolicy(name: "unstable", retryAttempts: 2)
+        )
+
+        XCTAssertEqual(response.body, Data("ok".utf8))
+        XCTAssertEqual(transport.requests.count, 2)
+    }
+
+    func testDataClientDecodesValidationFailures() async {
+        let body = Data(#"{"message":"Invalid","field_errors":{"email":"Required"},"values":{"email":""}}"#.utf8)
+        let transport = StaticTransport(response: GSXResponse(status: 422, body: body))
+        let client = GSXDataClient(transport: transport)
+
+        do {
+            _ = try await client.submit(GSXRequest(method: "POST", path: "/signup"))
+            XCTFail("expected validation failure")
+        } catch GSXDataError.validation(let failure) {
+            XCTAssertEqual(failure.message, "Invalid")
+            XCTAssertEqual(failure.fieldErrors["email"], "Required")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
     func testJSONRequestEncodesBodyAndContentType() throws {
         let request = try GSXRequest.json(path: "/greeting", body: GreetingPayload(message: "hello"))
 
@@ -124,5 +190,22 @@ private final class StaticTransport: GSXTransport {
     func send(_ request: GSXRequest) async throws -> GSXResponse {
         requests.append(request)
         return response
+    }
+}
+
+private final class SequenceTransport: GSXTransport {
+    private var responses: [GSXResponse]
+    var requests: [GSXRequest] = []
+
+    init(responses: [GSXResponse]) {
+        self.responses = responses
+    }
+
+    func send(_ request: GSXRequest) async throws -> GSXResponse {
+        requests.append(request)
+        if responses.isEmpty {
+            return GSXResponse(status: 500)
+        }
+        return responses.removeFirst()
     }
 }

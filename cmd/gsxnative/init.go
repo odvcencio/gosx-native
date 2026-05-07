@@ -233,8 +233,8 @@ func initGoSXSource(pkg string) string {
 
 //gosx:route name=home path=/ component=Home
 //gosx:route name=details path=/details/:id component=Home params=id:string
-//gosx:data name=loadGreeting method=GET path=/api/greeting
-//gosx:action name=submitGreeting method=POST path=/api/greeting
+//gosx:data name=loadGreeting method=GET path=/api/greeting output=message:string ttl=30s retry=2 auth=optional
+//gosx:action name=submitGreeting method=POST path=/api/greeting input=message:string output=message:string invalidates=loadGreeting optimistic=echo auth=required retry=2
 
 type HomeProps struct {
 	Title string

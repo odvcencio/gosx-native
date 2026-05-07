@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/odvcencio/gosx-native/target"
@@ -56,7 +57,10 @@ func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
 	if err := validateEndpoints("data loader", cfg.DataLoaders); err != nil {
 		return err
 	}
-	return validateEndpoints("action", cfg.Actions)
+	if err := validateEndpoints("action", cfg.Actions); err != nil {
+		return err
+	}
+	return validateActionInvalidates(cfg)
 }
 
 func effectiveProjectConfigForSource(cfg *projectConfig, sourcePath string) (*projectConfig, error) {
@@ -207,13 +211,54 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 	if err := requireDeclarationFields(kind, fields, "name", "method", "path"); err != nil {
 		return endpointDeclaration{}, err
 	}
-	if err := rejectUnknownDeclarationFields(kind, fields, "name", "method", "path"); err != nil {
+	if err := rejectUnknownDeclarationFields(kind, fields,
+		"name", "method", "path",
+		"params", "param",
+		"input", "request", "body",
+		"output", "response", "returns",
+		"ttl", "cache_ttl", "cache_ttl_seconds",
+		"invalidates", "invalidate",
+		"optimistic", "auth",
+		"retry", "retries", "retry_attempts",
+	); err != nil {
+		return endpointDeclaration{}, err
+	}
+	params, err := parseSourceParams(append(fields["params"], fields["param"]...))
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
+	input, err := parseSourceParams(append(append(fields["input"], fields["request"]...), fields["body"]...))
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
+	output, err := parseSourceParams(append(append(fields["output"], fields["response"]...), fields["returns"]...))
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
+	cacheTTL, err := parseSourceSeconds(firstNonEmptyField(fields, "cache_ttl_seconds", "cache_ttl", "ttl"))
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
+	retryAttempts, err := parseSourcePositiveInt(firstNonEmptyField(fields, "retry_attempts", "retry", "retries"))
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
+	auth, err := parseSourceAuth(firstField(fields, "auth"))
+	if err != nil {
 		return endpointDeclaration{}, err
 	}
 	return endpointDeclaration{
-		Name:   firstField(fields, "name"),
-		Method: firstField(fields, "method"),
-		Path:   firstField(fields, "path"),
+		Name:            firstField(fields, "name"),
+		Method:          firstField(fields, "method"),
+		Path:            firstField(fields, "path"),
+		Params:          params,
+		Input:           input,
+		Output:          output,
+		CacheTTLSeconds: cacheTTL,
+		Invalidates:     parseSourceList(append(fields["invalidates"], fields["invalidate"]...)),
+		Optimistic:      firstField(fields, "optimistic"),
+		Auth:            auth,
+		RetryAttempts:   retryAttempts,
 	}, nil
 }
 
@@ -247,6 +292,15 @@ func firstField(fields map[string][]string, name string) string {
 	return values[0]
 }
 
+func firstNonEmptyField(fields map[string][]string, names ...string) string {
+	for _, name := range names {
+		if value := firstField(fields, name); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func parseSourceParams(values []string) ([]paramDeclaration, error) {
 	var params []paramDeclaration
 	for _, value := range values {
@@ -271,6 +325,62 @@ func parseSourceParams(values []string) ([]paramDeclaration, error) {
 	return params, nil
 }
 
+func parseSourceList(values []string) []string {
+	var out []string
+	for _, value := range values {
+		for _, piece := range strings.Split(value, ",") {
+			piece = strings.TrimSpace(piece)
+			if piece != "" {
+				out = append(out, piece)
+			}
+		}
+	}
+	return out
+}
+
+func parseSourceSeconds(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds < 0 {
+			return 0, fmt.Errorf("cache TTL must be non-negative")
+		}
+		return seconds, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("cache TTL %q must be seconds or a Go duration", value)
+	}
+	if duration < 0 {
+		return 0, fmt.Errorf("cache TTL must be non-negative")
+	}
+	return int(duration / time.Second), nil
+}
+
+func parseSourcePositiveInt(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("retry attempts %q must be a non-negative integer", value)
+	}
+	return parsed, nil
+}
+
+func parseSourceAuth(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "none", "optional", "required":
+		return value, nil
+	default:
+		return "", fmt.Errorf("auth policy %q must be none, optional, or required", value)
+	}
+}
+
 func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 	seen := make(map[string]bool, len(endpoints))
 	for _, endpoint := range endpoints {
@@ -287,6 +397,86 @@ func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 			return fmt.Errorf("duplicate %s declaration %q", kind, endpoint.Name)
 		}
 		seen[endpoint.Name] = true
+		if err := validateEndpointParams(kind, endpoint.Name, "param", endpoint.Params); err != nil {
+			return err
+		}
+		if err := validateEndpointParams(kind, endpoint.Name, "input field", endpoint.Input); err != nil {
+			return err
+		}
+		if err := validateEndpointParams(kind, endpoint.Name, "output field", endpoint.Output); err != nil {
+			return err
+		}
+		if err := validateEndpointMethodParams(kind, endpoint); err != nil {
+			return err
+		}
+		for _, invalidated := range endpoint.Invalidates {
+			if !identifierPattern.MatchString(invalidated) {
+				return fmt.Errorf("%s %s invalidates unsupported data loader name %q", kind, endpoint.Name, invalidated)
+			}
+		}
+		if endpoint.Optimistic != "" && !identifierPattern.MatchString(endpoint.Optimistic) {
+			return fmt.Errorf("%s %s has invalid optimistic metadata %q", kind, endpoint.Name, endpoint.Optimistic)
+		}
+		if _, err := parseSourceAuth(endpoint.Auth); err != nil {
+			return fmt.Errorf("%s %s has invalid auth policy: %w", kind, endpoint.Name, err)
+		}
+		if endpoint.CacheTTLSeconds < 0 {
+			return fmt.Errorf("%s %s cache TTL must be non-negative", kind, endpoint.Name)
+		}
+		if endpoint.RetryAttempts < 0 {
+			return fmt.Errorf("%s %s retry attempts must be non-negative", kind, endpoint.Name)
+		}
+	}
+	return nil
+}
+
+func validateEndpointParams(kind, endpointName, label string, params []paramDeclaration) error {
+	seen := make(map[string]bool, len(params))
+	for _, param := range params {
+		if !identifierPattern.MatchString(param.Name) {
+			return fmt.Errorf("%s %s has invalid %s %q", kind, endpointName, label, param.Name)
+		}
+		if !supportedDeclarationType(param.Type) {
+			return fmt.Errorf("%s %s %s %s has unsupported type %q", kind, endpointName, label, param.Name, param.Type)
+		}
+		if seen[param.Name] {
+			return fmt.Errorf("%s %s has duplicate %s %q", kind, endpointName, label, param.Name)
+		}
+		seen[param.Name] = true
+	}
+	return nil
+}
+
+func validateEndpointMethodParams(kind string, endpoint endpointDeclaration) error {
+	seen := make(map[string]string, len(endpoint.Params)+len(endpoint.Input))
+	for _, param := range endpoint.Params {
+		seen[param.Name] = "param"
+	}
+	for _, input := range endpoint.Input {
+		if previous := seen[input.Name]; previous != "" {
+			return fmt.Errorf("%s %s uses %s %q and input field %q as generated method parameters", kind, endpoint.Name, previous, input.Name, input.Name)
+		}
+		seen[input.Name] = "input field"
+	}
+	return nil
+}
+
+func validateActionInvalidates(cfg *projectConfig) error {
+	loaders := make(map[string]bool, len(cfg.DataLoaders))
+	for _, loader := range cfg.DataLoaders {
+		loaders[loader.Name] = true
+	}
+	for _, action := range cfg.Actions {
+		seen := make(map[string]bool, len(action.Invalidates))
+		for _, invalidated := range action.Invalidates {
+			if !loaders[invalidated] {
+				return fmt.Errorf("action %s invalidates unknown data loader %q", action.Name, invalidated)
+			}
+			if seen[invalidated] {
+				return fmt.Errorf("action %s invalidates data loader %q more than once", action.Name, invalidated)
+			}
+			seen[invalidated] = true
+		}
 	}
 	return nil
 }
@@ -337,6 +527,8 @@ func emitSwiftDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf, "import Foundation")
 	fmt.Fprintln(&buf, "import GSXNativeKit")
 	fmt.Fprintln(&buf)
+	emitSwiftGeneratedSpecs(&buf)
+	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "public struct GSXGeneratedRouteSpec: Equatable {")
 	fmt.Fprintln(&buf, "    public let name: String")
 	fmt.Fprintln(&buf, "    public let path: String")
@@ -359,10 +551,35 @@ func emitSwiftDeclarations(cfg *projectConfig) []byte {
 	}
 	fmt.Fprintln(&buf, "}")
 	fmt.Fprintln(&buf)
+	emitSwiftEndpointSpecs(&buf, "GSXDataLoaders", cfg.DataLoaders, "GET")
+	fmt.Fprintln(&buf)
+	emitSwiftEndpointSpecs(&buf, "GSXActions", cfg.Actions, "POST")
+	fmt.Fprintln(&buf)
 	emitSwiftEndpointClient(&buf, "GSXGeneratedDataClient", "load", cfg.DataLoaders, "GET")
 	fmt.Fprintln(&buf)
 	emitSwiftEndpointClient(&buf, "GSXGeneratedActionClient", "submit", cfg.Actions, "POST")
 	return buf.Bytes()
+}
+
+func emitSwiftGeneratedSpecs(buf *bytes.Buffer) {
+	fmt.Fprintln(buf, "public struct GSXGeneratedParamSpec: Equatable {")
+	fmt.Fprintln(buf, "    public let name: String")
+	fmt.Fprintln(buf, "    public let type: String")
+	fmt.Fprintln(buf, "}")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "public struct GSXGeneratedEndpointSpec: Equatable {")
+	fmt.Fprintln(buf, "    public let name: String")
+	fmt.Fprintln(buf, "    public let method: String")
+	fmt.Fprintln(buf, "    public let path: String")
+	fmt.Fprintln(buf, "    public let params: [GSXGeneratedParamSpec]")
+	fmt.Fprintln(buf, "    public let input: [GSXGeneratedParamSpec]")
+	fmt.Fprintln(buf, "    public let output: [GSXGeneratedParamSpec]")
+	fmt.Fprintln(buf, "    public let cacheTTLSeconds: Int?")
+	fmt.Fprintln(buf, "    public let invalidates: [String]")
+	fmt.Fprintln(buf, "    public let optimistic: String?")
+	fmt.Fprintln(buf, "    public let auth: GSXAuthRequirement")
+	fmt.Fprintln(buf, "    public let retryAttempts: Int?")
+	fmt.Fprintln(buf, "}")
 }
 
 func emitSwiftRoute(buf *bytes.Buffer, route routeDeclaration) {
@@ -383,7 +600,33 @@ func emitSwiftRoute(buf *bytes.Buffer, route routeDeclaration) {
 	fmt.Fprintln(buf, "    }")
 }
 
+func emitSwiftEndpointSpecs(buf *bytes.Buffer, enumName string, endpoints []endpointDeclaration, defaultMethod string) {
+	fmt.Fprintf(buf, "public enum %s {\n", enumName)
+	fmt.Fprintln(buf, "    public static let specs: [GSXGeneratedEndpointSpec] = [")
+	for _, endpoint := range endpoints {
+		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name: %s, method: %s, path: %s, params: %s, input: %s, output: %s, cacheTTLSeconds: %s, invalidates: %s, optimistic: %s, auth: %s, retryAttempts: %s),\n",
+			strconv.Quote(endpoint.Name),
+			strconv.Quote(endpointMethod(endpoint, defaultMethod)),
+			strconv.Quote(endpoint.Path),
+			swiftParamSpecArray(endpoint.Params),
+			swiftParamSpecArray(endpoint.Input),
+			swiftParamSpecArray(endpoint.Output),
+			swiftOptionalInt(endpoint.CacheTTLSeconds),
+			swiftStringArray(endpoint.Invalidates),
+			swiftOptionalString(endpoint.Optimistic),
+			swiftAuthRequirement(endpoint.Auth),
+			swiftOptionalInt(endpoint.RetryAttempts),
+		)
+	}
+	fmt.Fprintln(buf, "    ]")
+	fmt.Fprintln(buf, "}")
+}
+
 func emitSwiftEndpointClient(buf *bytes.Buffer, className, operation string, endpoints []endpointDeclaration, defaultMethod string) {
+	emitSwiftEndpointModels(buf, className, endpoints)
+	if len(endpoints) > 0 {
+		fmt.Fprintln(buf)
+	}
 	fmt.Fprintf(buf, "public final class %s {\n", className)
 	fmt.Fprintln(buf, "    private let client: GSXDataClient")
 	fmt.Fprintln(buf)
@@ -412,12 +655,64 @@ func emitSwiftEndpointClient(buf *bytes.Buffer, className, operation string, end
 	fmt.Fprintln(buf, "    }")
 	for _, endpoint := range endpoints {
 		fmt.Fprintln(buf)
-		fmt.Fprintf(buf, "    public func %s() async throws -> GSXResponse {\n", swiftIdentifier(endpoint.Name))
-		fmt.Fprintf(buf, "        try await client.%s(GSXRequest(method: %s, path: %s))\n",
-			operation, strconv.Quote(endpointMethod(endpoint, defaultMethod)), strconv.Quote(endpoint.Path))
+		resultType := "GSXResponse"
+		outputModel := swiftEndpointModelName(className, endpoint, "Response")
+		if len(endpoint.Output) > 0 {
+			resultType = outputModel
+		}
+		fmt.Fprintf(buf, "    public func %s(%s) async throws -> %s {\n", swiftIdentifier(endpoint.Name), swiftEndpointParamList(endpoint), resultType)
+		emitSwiftEndpointRequest(buf, className, endpoint, defaultMethod)
+		fmt.Fprintf(buf, "        let response = try await client.%s(request, policy: %s)\n", operation, swiftRequestPolicy(endpoint))
+		if len(endpoint.Output) > 0 {
+			fmt.Fprintf(buf, "        return try response.decodedJSON(%s.self)\n", outputModel)
+		} else {
+			fmt.Fprintln(buf, "        return response")
+		}
 		fmt.Fprintln(buf, "    }")
 	}
 	fmt.Fprintln(buf, "}")
+}
+
+func emitSwiftEndpointModels(buf *bytes.Buffer, className string, endpoints []endpointDeclaration) {
+	for _, endpoint := range endpoints {
+		if len(endpoint.Input) > 0 {
+			emitSwiftEndpointModel(buf, swiftEndpointModelName(className, endpoint, "Input"), endpoint.Input)
+			fmt.Fprintln(buf)
+		}
+		if len(endpoint.Output) > 0 {
+			emitSwiftEndpointModel(buf, swiftEndpointModelName(className, endpoint, "Response"), endpoint.Output)
+			fmt.Fprintln(buf)
+		}
+	}
+}
+
+func emitSwiftEndpointModel(buf *bytes.Buffer, name string, fields []paramDeclaration) {
+	fmt.Fprintf(buf, "public struct %s: Codable, Equatable {\n", name)
+	for _, field := range fields {
+		fmt.Fprintf(buf, "    public let %s: %s\n", swiftIdentifier(field.Name), swiftTypeForDecl(field.Type))
+	}
+	fmt.Fprintln(buf)
+	fmt.Fprintf(buf, "    public init(%s) {\n", swiftParamList(fields))
+	for _, field := range fields {
+		identifier := swiftIdentifier(field.Name)
+		fmt.Fprintf(buf, "        self.%s = %s\n", identifier, identifier)
+	}
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitSwiftEndpointRequest(buf *bytes.Buffer, className string, endpoint endpointDeclaration, defaultMethod string) {
+	pathExpr := strconv.Quote(endpoint.Path)
+	if len(endpoint.Params) > 0 {
+		fmt.Fprintf(buf, "        let path = GSXRequest.resolvedPath(%s, params: %s)\n", strconv.Quote(endpoint.Path), swiftParamMap(endpoint.Params))
+		pathExpr = "path"
+	}
+	if len(endpoint.Input) > 0 {
+		fmt.Fprintf(buf, "        let input = %s(%s)\n", swiftEndpointModelName(className, endpoint, "Input"), swiftModelInitArgs(endpoint.Input))
+		fmt.Fprintf(buf, "        let request = try GSXRequest.json(method: %s, path: %s, body: input)\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), pathExpr)
+		return
+	}
+	fmt.Fprintf(buf, "        let request = GSXRequest(method: %s, path: %s)\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), pathExpr)
 }
 
 func emitKotlinDeclarations(cfg *projectConfig) []byte {
@@ -425,13 +720,18 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf, "// Code generated by gsxnative. DO NOT EDIT.")
 	fmt.Fprintln(&buf, "package generated")
 	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXAuthRequirement")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXDataClient")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXHTTPTransport")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRequest")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRequestPolicy")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXResponse")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRoute")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXTokenStore")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXTransport")
+	fmt.Fprintln(&buf, "import org.json.JSONObject")
+	fmt.Fprintln(&buf)
+	emitKotlinGeneratedSpecs(&buf)
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "data class GSXGeneratedRouteSpec(")
 	fmt.Fprintln(&buf, "    val name: String,")
@@ -455,10 +755,35 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	}
 	fmt.Fprintln(&buf, "}")
 	fmt.Fprintln(&buf)
+	emitKotlinEndpointSpecs(&buf, "GSXDataLoaders", cfg.DataLoaders, "GET")
+	fmt.Fprintln(&buf)
+	emitKotlinEndpointSpecs(&buf, "GSXActions", cfg.Actions, "POST")
+	fmt.Fprintln(&buf)
 	emitKotlinEndpointClient(&buf, "GSXGeneratedDataClient", "load", cfg.DataLoaders, "GET")
 	fmt.Fprintln(&buf)
 	emitKotlinEndpointClient(&buf, "GSXGeneratedActionClient", "submit", cfg.Actions, "POST")
 	return buf.Bytes()
+}
+
+func emitKotlinGeneratedSpecs(buf *bytes.Buffer) {
+	fmt.Fprintln(buf, "data class GSXGeneratedParamSpec(")
+	fmt.Fprintln(buf, "    val name: String,")
+	fmt.Fprintln(buf, "    val type: String,")
+	fmt.Fprintln(buf, ")")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "data class GSXGeneratedEndpointSpec(")
+	fmt.Fprintln(buf, "    val name: String,")
+	fmt.Fprintln(buf, "    val method: String,")
+	fmt.Fprintln(buf, "    val path: String,")
+	fmt.Fprintln(buf, "    val params: List<GSXGeneratedParamSpec> = emptyList(),")
+	fmt.Fprintln(buf, "    val input: List<GSXGeneratedParamSpec> = emptyList(),")
+	fmt.Fprintln(buf, "    val output: List<GSXGeneratedParamSpec> = emptyList(),")
+	fmt.Fprintln(buf, "    val cacheTTLSeconds: Int? = null,")
+	fmt.Fprintln(buf, "    val invalidates: List<String> = emptyList(),")
+	fmt.Fprintln(buf, "    val optimistic: String? = null,")
+	fmt.Fprintln(buf, "    val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,")
+	fmt.Fprintln(buf, "    val retryAttempts: Int? = null,")
+	fmt.Fprintln(buf, ")")
 }
 
 func emitKotlinRoute(buf *bytes.Buffer, route routeDeclaration) {
@@ -477,7 +802,33 @@ func emitKotlinRoute(buf *bytes.Buffer, route routeDeclaration) {
 	fmt.Fprintln(buf, "    )")
 }
 
+func emitKotlinEndpointSpecs(buf *bytes.Buffer, objectName string, endpoints []endpointDeclaration, defaultMethod string) {
+	fmt.Fprintf(buf, "object %s {\n", objectName)
+	fmt.Fprintln(buf, "    val specs: List<GSXGeneratedEndpointSpec> = listOf(")
+	for _, endpoint := range endpoints {
+		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name = %s, method = %s, path = %s, params = %s, input = %s, output = %s, cacheTTLSeconds = %s, invalidates = %s, optimistic = %s, auth = %s, retryAttempts = %s),\n",
+			strconv.Quote(endpoint.Name),
+			strconv.Quote(endpointMethod(endpoint, defaultMethod)),
+			strconv.Quote(endpoint.Path),
+			kotlinParamSpecList(endpoint.Params),
+			kotlinParamSpecList(endpoint.Input),
+			kotlinParamSpecList(endpoint.Output),
+			kotlinOptionalInt(endpoint.CacheTTLSeconds),
+			kotlinStringList(endpoint.Invalidates),
+			kotlinOptionalString(endpoint.Optimistic),
+			kotlinAuthRequirement(endpoint.Auth),
+			kotlinOptionalInt(endpoint.RetryAttempts),
+		)
+	}
+	fmt.Fprintln(buf, "    )")
+	fmt.Fprintln(buf, "}")
+}
+
 func emitKotlinEndpointClient(buf *bytes.Buffer, className, operation string, endpoints []endpointDeclaration, defaultMethod string) {
+	emitKotlinEndpointModels(buf, className, endpoints)
+	if len(endpoints) > 0 {
+		fmt.Fprintln(buf)
+	}
 	fmt.Fprintf(buf, "class %s(\n", className)
 	fmt.Fprintln(buf, "    private val client: GSXDataClient,")
 	fmt.Fprintln(buf, ") {")
@@ -492,11 +843,84 @@ func emitKotlinEndpointClient(buf *bytes.Buffer, className, operation string, en
 	fmt.Fprintln(buf, "    )")
 	for _, endpoint := range endpoints {
 		fmt.Fprintln(buf)
-		fmt.Fprintf(buf, "    suspend fun %s(): GSXResponse = client.%s(\n", kotlinIdentifier(endpoint.Name), operation)
-		fmt.Fprintf(buf, "        GSXRequest(method = %s, path = %s),\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), strconv.Quote(endpoint.Path))
-		fmt.Fprintln(buf, "    )")
+		resultType := "GSXResponse"
+		outputModel := kotlinEndpointModelName(className, endpoint, "Response")
+		if len(endpoint.Output) > 0 {
+			resultType = outputModel
+		}
+		fmt.Fprintf(buf, "    suspend fun %s(%s): %s {\n", kotlinIdentifier(endpoint.Name), kotlinEndpointParamList(endpoint), resultType)
+		emitKotlinEndpointRequest(buf, className, endpoint, defaultMethod)
+		fmt.Fprintf(buf, "        val response = client.%s(request, policy = %s)\n", operation, kotlinRequestPolicy(endpoint))
+		if len(endpoint.Output) > 0 {
+			fmt.Fprintf(buf, "        return %s.fromJSON(response.text())\n", outputModel)
+		} else {
+			fmt.Fprintln(buf, "        return response")
+		}
+		fmt.Fprintln(buf, "    }")
 	}
 	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinEndpointModels(buf *bytes.Buffer, className string, endpoints []endpointDeclaration) {
+	for _, endpoint := range endpoints {
+		if len(endpoint.Input) > 0 {
+			emitKotlinEndpointInputModel(buf, kotlinEndpointModelName(className, endpoint, "Input"), endpoint.Input)
+			fmt.Fprintln(buf)
+		}
+		if len(endpoint.Output) > 0 {
+			emitKotlinEndpointOutputModel(buf, kotlinEndpointModelName(className, endpoint, "Response"), endpoint.Output)
+			fmt.Fprintln(buf)
+		}
+	}
+}
+
+func emitKotlinEndpointInputModel(buf *bytes.Buffer, name string, fields []paramDeclaration) {
+	fmt.Fprintf(buf, "data class %s(\n", name)
+	for _, field := range fields {
+		fmt.Fprintf(buf, "    val %s: %s,\n", kotlinIdentifier(field.Name), kotlinTypeForDecl(field.Type))
+	}
+	fmt.Fprintln(buf, ") {")
+	fmt.Fprintln(buf, "    fun toJSON(): String {")
+	fmt.Fprintln(buf, "        val objectValue = JSONObject()")
+	for _, field := range fields {
+		fmt.Fprintf(buf, "        objectValue.put(%s, %s)\n", strconv.Quote(field.Name), kotlinIdentifier(field.Name))
+	}
+	fmt.Fprintln(buf, "        return objectValue.toString()")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinEndpointOutputModel(buf *bytes.Buffer, name string, fields []paramDeclaration) {
+	fmt.Fprintf(buf, "data class %s(\n", name)
+	for _, field := range fields {
+		fmt.Fprintf(buf, "    val %s: %s,\n", kotlinIdentifier(field.Name), kotlinTypeForDecl(field.Type))
+	}
+	fmt.Fprintln(buf, ") {")
+	fmt.Fprintln(buf, "    companion object {")
+	fmt.Fprintln(buf, "        fun fromJSON(json: String): "+name+" {")
+	fmt.Fprintln(buf, "            val objectValue = JSONObject(json)")
+	fmt.Fprintf(buf, "            return %s(\n", name)
+	for _, field := range fields {
+		fmt.Fprintf(buf, "                %s = %s,\n", kotlinIdentifier(field.Name), kotlinJSONGetter(field))
+	}
+	fmt.Fprintln(buf, "            )")
+	fmt.Fprintln(buf, "        }")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf, "}")
+}
+
+func emitKotlinEndpointRequest(buf *bytes.Buffer, className string, endpoint endpointDeclaration, defaultMethod string) {
+	pathExpr := strconv.Quote(endpoint.Path)
+	if len(endpoint.Params) > 0 {
+		fmt.Fprintf(buf, "        val path = GSXRequest.resolvedPath(%s, params = %s)\n", strconv.Quote(endpoint.Path), kotlinParamMap(endpoint.Params))
+		pathExpr = "path"
+	}
+	if len(endpoint.Input) > 0 {
+		fmt.Fprintf(buf, "        val input = %s(%s)\n", kotlinEndpointModelName(className, endpoint, "Input"), kotlinModelInitArgs(endpoint.Input))
+		fmt.Fprintf(buf, "        val request = GSXRequest.json(method = %s, path = %s, json = input.toJSON())\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), pathExpr)
+		return
+	}
+	fmt.Fprintf(buf, "        val request = GSXRequest(method = %s, path = %s)\n", strconv.Quote(endpointMethod(endpoint, defaultMethod)), pathExpr)
 }
 
 func endpointMethod(endpoint endpointDeclaration, fallback string) string {
@@ -552,6 +976,213 @@ func kotlinStringList(values []string) string {
 		quoted = append(quoted, strconv.Quote(value))
 	}
 	return "listOf(" + strings.Join(quoted, ", ") + ")"
+}
+
+func swiftParamSpecArray(params []paramDeclaration) string {
+	if len(params) == 0 {
+		return "[]"
+	}
+	specs := make([]string, 0, len(params))
+	for _, param := range params {
+		specs = append(specs, fmt.Sprintf("GSXGeneratedParamSpec(name: %s, type: %s)", strconv.Quote(param.Name), strconv.Quote(normalizedDeclarationType(param.Type))))
+	}
+	return "[" + strings.Join(specs, ", ") + "]"
+}
+
+func kotlinParamSpecList(params []paramDeclaration) string {
+	if len(params) == 0 {
+		return "emptyList()"
+	}
+	specs := make([]string, 0, len(params))
+	for _, param := range params {
+		specs = append(specs, fmt.Sprintf("GSXGeneratedParamSpec(name = %s, type = %s)", strconv.Quote(param.Name), strconv.Quote(normalizedDeclarationType(param.Type))))
+	}
+	return "listOf(" + strings.Join(specs, ", ") + ")"
+}
+
+func normalizedDeclarationType(typ string) string {
+	typ = strings.ToLower(strings.TrimSpace(typ))
+	if typ == "" {
+		return "string"
+	}
+	if typ == "boolean" {
+		return "bool"
+	}
+	return typ
+}
+
+func swiftOptionalInt(value int) string {
+	if value <= 0 {
+		return "nil"
+	}
+	return strconv.Itoa(value)
+}
+
+func kotlinOptionalInt(value int) string {
+	if value <= 0 {
+		return "null"
+	}
+	return strconv.Itoa(value)
+}
+
+func swiftOptionalString(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "nil"
+	}
+	return strconv.Quote(value)
+}
+
+func kotlinOptionalString(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "null"
+	}
+	return strconv.Quote(value)
+}
+
+func swiftAuthRequirement(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "required":
+		return "GSXAuthRequirement.required"
+	case "none":
+		return "GSXAuthRequirement.none"
+	default:
+		return "GSXAuthRequirement.optional"
+	}
+}
+
+func kotlinAuthRequirement(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "required":
+		return "GSXAuthRequirement.Required"
+	case "none":
+		return "GSXAuthRequirement.None"
+	default:
+		return "GSXAuthRequirement.Optional"
+	}
+}
+
+func swiftEndpointModelName(className string, endpoint endpointDeclaration, suffix string) string {
+	return endpointModelName(className, endpoint, suffix)
+}
+
+func kotlinEndpointModelName(className string, endpoint endpointDeclaration, suffix string) string {
+	return endpointModelName(className, endpoint, suffix)
+}
+
+func endpointModelName(className string, endpoint endpointDeclaration, suffix string) string {
+	prefix := strings.TrimPrefix(className, "GSXGenerated")
+	prefix = strings.TrimSuffix(prefix, "Client")
+	if prefix == "" {
+		prefix = "Endpoint"
+	}
+	return "GSXGenerated" + prefix + pascalIdentifier(endpoint.Name, "Endpoint") + suffix
+}
+
+func swiftEndpointParamList(endpoint endpointDeclaration) string {
+	return swiftParamList(endpointMethodParams(endpoint))
+}
+
+func kotlinEndpointParamList(endpoint endpointDeclaration) string {
+	return kotlinParamList(endpointMethodParams(endpoint))
+}
+
+func endpointMethodParams(endpoint endpointDeclaration) []paramDeclaration {
+	params := make([]paramDeclaration, 0, len(endpoint.Params)+len(endpoint.Input))
+	params = append(params, endpoint.Params...)
+	params = append(params, endpoint.Input...)
+	return params
+}
+
+func swiftParamMap(params []paramDeclaration) string {
+	if len(params) == 0 {
+		return "[:]"
+	}
+	entries := make([]string, 0, len(params))
+	for _, param := range params {
+		entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(param.Name), swiftStringValue(param.Name, param.Type)))
+	}
+	return "[" + strings.Join(entries, ", ") + "]"
+}
+
+func kotlinParamMap(params []paramDeclaration) string {
+	if len(params) == 0 {
+		return "emptyMap()"
+	}
+	entries := make([]string, 0, len(params))
+	for _, param := range params {
+		entries = append(entries, fmt.Sprintf("%s to %s", strconv.Quote(param.Name), kotlinStringValue(param.Name, param.Type)))
+	}
+	return "mapOf(" + strings.Join(entries, ", ") + ")"
+}
+
+func swiftModelInitArgs(fields []paramDeclaration) string {
+	args := make([]string, 0, len(fields))
+	for _, field := range fields {
+		args = append(args, fmt.Sprintf("%s: %s", swiftIdentifier(field.Name), swiftIdentifier(field.Name)))
+	}
+	return strings.Join(args, ", ")
+}
+
+func kotlinModelInitArgs(fields []paramDeclaration) string {
+	args := make([]string, 0, len(fields))
+	for _, field := range fields {
+		args = append(args, fmt.Sprintf("%s = %s", kotlinIdentifier(field.Name), kotlinIdentifier(field.Name)))
+	}
+	return strings.Join(args, ", ")
+}
+
+func swiftRequestPolicy(endpoint endpointDeclaration) string {
+	parts := []string{fmt.Sprintf("name: %s", strconv.Quote(endpoint.Name))}
+	if endpoint.CacheTTLSeconds > 0 {
+		parts = append(parts, fmt.Sprintf("cacheTTLSeconds: %d", endpoint.CacheTTLSeconds))
+	}
+	if len(endpoint.Invalidates) > 0 {
+		parts = append(parts, "invalidates: "+swiftStringArray(endpoint.Invalidates))
+	}
+	if endpoint.Optimistic != "" {
+		parts = append(parts, "optimistic: "+strconv.Quote(endpoint.Optimistic))
+	}
+	if endpoint.Auth != "" {
+		parts = append(parts, "auth: "+swiftAuthRequirement(endpoint.Auth))
+	}
+	if endpoint.RetryAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("retryAttempts: %d", endpoint.RetryAttempts))
+	}
+	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
+}
+
+func kotlinRequestPolicy(endpoint endpointDeclaration) string {
+	parts := []string{fmt.Sprintf("name = %s", strconv.Quote(endpoint.Name))}
+	if endpoint.CacheTTLSeconds > 0 {
+		parts = append(parts, fmt.Sprintf("cacheTTLSeconds = %d", endpoint.CacheTTLSeconds))
+	}
+	if len(endpoint.Invalidates) > 0 {
+		parts = append(parts, "invalidates = "+kotlinStringList(endpoint.Invalidates))
+	}
+	if endpoint.Optimistic != "" {
+		parts = append(parts, "optimistic = "+strconv.Quote(endpoint.Optimistic))
+	}
+	if endpoint.Auth != "" {
+		parts = append(parts, "auth = "+kotlinAuthRequirement(endpoint.Auth))
+	}
+	if endpoint.RetryAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("retryAttempts = %d", endpoint.RetryAttempts))
+	}
+	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
+}
+
+func kotlinJSONGetter(field paramDeclaration) string {
+	name := strconv.Quote(field.Name)
+	switch strings.ToLower(strings.TrimSpace(field.Type)) {
+	case "int":
+		return "objectValue.getInt(" + name + ")"
+	case "double", "float":
+		return "objectValue.getDouble(" + name + ")"
+	case "bool", "boolean":
+		return "objectValue.getBoolean(" + name + ")"
+	default:
+		return "objectValue.getString(" + name + ")"
+	}
 }
 
 func swiftStringValue(name, typ string) string {

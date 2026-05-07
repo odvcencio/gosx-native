@@ -2,7 +2,9 @@ package com.gosx.nativekit
 
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.nio.charset.Charset
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -31,6 +33,27 @@ data class GSXRequest(
             json: String,
             contentType: String = "application/json",
         ): GSXRequest = GSXRequest(method = method, path = path, headers = headers).withJSONBody(json, contentType)
+
+        fun resolvedPath(pattern: String, params: Map<String, String> = emptyMap()): String {
+            var path = pattern
+            val query = mutableListOf<Pair<String, String>>()
+            for ((name, value) in params.toSortedMap()) {
+                val token = ":$name"
+                if (path.contains(token)) {
+                    path = path.replace(token, encode(value))
+                } else {
+                    query += name to value
+                }
+            }
+            if (query.isEmpty()) {
+                return path
+            }
+            val separator = if (path.contains("?")) "&" else "?"
+            return path + separator + query.joinToString("&") { (name, value) -> "${encode(name)}=${encode(value)}" }
+        }
+
+        private fun encode(value: String): String =
+            URLEncoder.encode(value, "UTF-8").replace("+", "%20")
     }
 }
 
@@ -45,6 +68,31 @@ data class GSXResponse(
 class GSXHttpStatusException(
     val response: GSXResponse,
 ) : RuntimeException("GSX request failed with HTTP ${response.status}")
+
+enum class GSXAuthRequirement {
+    None,
+    Optional,
+    Required,
+}
+
+data class GSXRequestPolicy(
+    val name: String? = null,
+    val cacheTTLSeconds: Int? = null,
+    val invalidates: List<String> = emptyList(),
+    val optimistic: String? = null,
+    val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,
+    val retryAttempts: Int? = null,
+)
+
+data class GSXValidationFailure(
+    val message: String,
+    val fieldErrors: Map<String, String> = emptyMap(),
+    val values: Map<String, String> = emptyMap(),
+)
+
+class GSXValidationException(
+    val failure: GSXValidationFailure,
+) : RuntimeException(failure.message)
 
 class GSXTransportException(
     message: String,
@@ -180,6 +228,8 @@ class GSXHTTPTransport(
 class GSXDataClient(
     private val transport: GSXTransport,
 ) {
+    private val cache = ConcurrentHashMap<String, CachedResponse>()
+
     constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap()) : this(
         GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders),
     )
@@ -195,15 +245,120 @@ class GSXDataClient(
         ),
     )
 
-    suspend fun load(request: GSXRequest): GSXResponse {
-        val response = transport.send(request)
-        if (response.status !in 200..299) {
-            throw GSXHttpStatusException(response)
+    suspend fun load(
+        request: GSXRequest,
+        policy: GSXRequestPolicy = GSXRequestPolicy(),
+    ): GSXResponse {
+        val key = cacheKey(request, policy)
+        val ttl = policy.cacheTTLSeconds
+        if (ttl != null && request.method.equals("GET", ignoreCase = true)) {
+            cache[key]?.let { cached ->
+                if (!cached.isExpired(ttl)) {
+                    return cached.response
+                }
+            }
+        }
+
+        val response = sendWithRetry(request, policy)
+        if (ttl != null && ttl > 0 && request.method.equals("GET", ignoreCase = true)) {
+            cache[key] = CachedResponse(response = response, createdAtMillis = System.currentTimeMillis())
         }
         return response
     }
 
-    suspend fun submit(request: GSXRequest): GSXResponse = load(request)
+    suspend fun submit(
+        request: GSXRequest,
+        policy: GSXRequestPolicy = GSXRequestPolicy(),
+    ): GSXResponse {
+        val response = sendWithRetry(request, policy)
+        invalidate(policy.invalidates)
+        return response
+    }
+
+    fun invalidate(names: List<String>) {
+        if (names.isEmpty()) {
+            return
+        }
+        cache.keys.removeIf { key -> names.contains(key.substringBefore("|")) }
+    }
+
+    fun invalidateAll() {
+        cache.clear()
+    }
+
+    private suspend fun sendWithRetry(request: GSXRequest, policy: GSXRequestPolicy): GSXResponse {
+        val attempts = maxOf(1, policy.retryAttempts ?: 1)
+        var lastError: Throwable? = null
+        for (attempt in 1..attempts) {
+            try {
+                val response = transport.send(request)
+                if (shouldRetry(response.status) && attempt < attempts) {
+                    continue
+                }
+                validate(response)
+                return response
+            } catch (error: Throwable) {
+                lastError = error
+                if (attempt >= attempts) {
+                    throw error
+                }
+            }
+        }
+        throw lastError ?: GSXTransportException("GSX request failed without a response")
+    }
+
+    private fun validate(response: GSXResponse) {
+        if (response.status in 200..299) {
+            return
+        }
+        if (response.status == 422) {
+            throw GSXValidationException(parseValidationFailure(response))
+        }
+        throw GSXHttpStatusException(response)
+    }
+
+    private fun parseValidationFailure(response: GSXResponse): GSXValidationFailure {
+        return try {
+            val json = org.json.JSONObject(response.text())
+            GSXValidationFailure(
+                message = json.optString("message", "Validation failed"),
+                fieldErrors = jsonObjectToStringMap(json.optJSONObject("field_errors")),
+                values = jsonObjectToStringMap(json.optJSONObject("values")),
+            )
+        } catch (_: Throwable) {
+            GSXValidationFailure(message = response.text().ifBlank { "Validation failed" })
+        }
+    }
+
+    private fun jsonObjectToStringMap(json: org.json.JSONObject?): Map<String, String> {
+        if (json == null) {
+            return emptyMap()
+        }
+        val out = linkedMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            out[key] = json.optString(key)
+        }
+        return out
+    }
+
+    private fun shouldRetry(status: Int): Boolean =
+        status == 408 || status == 429 || status in 500..599
+
+    private fun cacheKey(request: GSXRequest, policy: GSXRequestPolicy): String {
+        val name = policy.name ?: request.path
+        val body = request.body?.decodeToString().orEmpty()
+        return "$name|${request.method.uppercase()}|${request.path}|$body"
+    }
+
+    private data class CachedResponse(
+        val response: GSXResponse,
+        val createdAtMillis: Long,
+    ) {
+        fun isExpired(ttlSeconds: Int): Boolean =
+            ttlSeconds <= 0 || System.currentTimeMillis() - createdAtMillis > ttlSeconds * 1_000L
+    }
 }
 
 fun interface GSXAction<Input, Output> {

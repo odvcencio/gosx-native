@@ -27,8 +27,42 @@ public struct GSXRequest: Equatable {
         return GSXRequest(method: method, path: path, headers: requestHeaders, body: try encoder.encode(body))
     }
 
+    public static func resolvedPath(_ pattern: String, params: [String: String] = [:]) -> String {
+        var path = pattern
+        var query: [(String, String)] = []
+        for name in params.keys.sorted() {
+            guard let value = params[name] else {
+                continue
+            }
+            let token = ":" + name
+            if path.contains(token) {
+                path = path.replacingOccurrences(of: token, with: percentEncodedPathValue(value))
+            } else {
+                query.append((name, value))
+            }
+        }
+        guard !query.isEmpty else {
+            return path
+        }
+        let separator = path.contains("?") ? "&" : "?"
+        let queryString = query
+            .map { name, value in "\(percentEncodedQueryValue(name))=\(percentEncodedQueryValue(value))" }
+            .joined(separator: "&")
+        return path + separator + queryString
+    }
+
     private static func hasHeader(_ name: String, in headers: [String: String]) -> Bool {
         headers.keys.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    private static func percentEncodedPathValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+    }
+
+    private static func percentEncodedQueryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 
@@ -52,11 +86,61 @@ public struct GSXResponse: Equatable {
     }
 }
 
+public enum GSXAuthRequirement: String, Codable, Equatable {
+    case none
+    case optional
+    case required
+}
+
+public struct GSXRequestPolicy: Equatable {
+    public var name: String?
+    public var cacheTTLSeconds: Int?
+    public var invalidates: [String]
+    public var optimistic: String?
+    public var auth: GSXAuthRequirement
+    public var retryAttempts: Int?
+
+    public init(
+        name: String? = nil,
+        cacheTTLSeconds: Int? = nil,
+        invalidates: [String] = [],
+        optimistic: String? = nil,
+        auth: GSXAuthRequirement = .optional,
+        retryAttempts: Int? = nil
+    ) {
+        self.name = name
+        self.cacheTTLSeconds = cacheTTLSeconds
+        self.invalidates = invalidates
+        self.optimistic = optimistic
+        self.auth = auth
+        self.retryAttempts = retryAttempts
+    }
+}
+
+public struct GSXValidationFailure: Error, Codable, Equatable {
+    public var message: String
+    public var fieldErrors: [String: String]
+    public var values: [String: String]
+
+    public init(message: String, fieldErrors: [String: String] = [:], values: [String: String] = [:]) {
+        self.message = message
+        self.fieldErrors = fieldErrors
+        self.values = values
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case message
+        case fieldErrors = "field_errors"
+        case values
+    }
+}
+
 public enum GSXDataError: Error, Equatable {
     case invalidBaseURL(String)
     case invalidResponse
     case invalidURL(String)
     case httpStatus(Int, body: Data)
+    case validation(GSXValidationFailure)
 }
 
 public protocol GSXTransport {
@@ -180,6 +264,7 @@ public final class GSXHTTPTransport: GSXTransport {
 
 public final class GSXDataClient {
     private let transport: any GSXTransport
+    private var cache: [String: GSXCachedResponse] = [:]
 
     public init(transport: any GSXTransport) {
         self.transport = transport
@@ -211,16 +296,89 @@ public final class GSXDataClient {
         )
     }
 
-    public func load(_ request: GSXRequest) async throws -> GSXResponse {
-        let response = try await transport.send(request)
-        guard (200..<300).contains(response.status) else {
-            throw GSXDataError.httpStatus(response.status, body: response.body)
+    public func load(_ request: GSXRequest, policy: GSXRequestPolicy = GSXRequestPolicy()) async throws -> GSXResponse {
+        let key = cacheKey(for: request, policy: policy)
+        if let ttl = policy.cacheTTLSeconds, request.method.uppercased() == "GET", let cached = cache[key], !cached.isExpired(ttlSeconds: ttl) {
+            return cached.response
+        }
+
+        let response = try await sendWithRetry(request, policy: policy)
+        if let ttl = policy.cacheTTLSeconds, ttl > 0, request.method.uppercased() == "GET" {
+            cache[key] = GSXCachedResponse(response: response, createdAt: Date())
         }
         return response
     }
 
-    public func submit(_ request: GSXRequest) async throws -> GSXResponse {
-        try await load(request)
+    public func submit(_ request: GSXRequest, policy: GSXRequestPolicy = GSXRequestPolicy()) async throws -> GSXResponse {
+        let response = try await sendWithRetry(request, policy: policy)
+        invalidate(policy.invalidates)
+        return response
+    }
+
+    public func invalidate(_ names: [String]) {
+        guard !names.isEmpty else {
+            return
+        }
+        cache = cache.filter { key, _ in
+            guard let name = key.split(separator: "|", maxSplits: 1).first else {
+                return true
+            }
+            return !names.contains(String(name))
+        }
+    }
+
+    public func invalidateAll() {
+        cache.removeAll()
+    }
+
+    private func sendWithRetry(_ request: GSXRequest, policy: GSXRequestPolicy) async throws -> GSXResponse {
+        let attempts = max(1, policy.retryAttempts ?? 1)
+        var lastError: Error?
+        for attempt in 1...attempts {
+            do {
+                let response = try await transport.send(request)
+                if shouldRetry(response.status), attempt < attempts {
+                    continue
+                }
+                try validate(response)
+                return response
+            } catch {
+                lastError = error
+                if attempt >= attempts {
+                    throw error
+                }
+            }
+        }
+        throw lastError ?? GSXDataError.invalidResponse
+    }
+
+    private func validate(_ response: GSXResponse) throws {
+        guard !(200..<300).contains(response.status) else {
+            return
+        }
+        if response.status == 422, let failure = try? JSONDecoder().decode(GSXValidationFailure.self, from: response.body) {
+            throw GSXDataError.validation(failure)
+        }
+        throw GSXDataError.httpStatus(response.status, body: response.body)
+    }
+
+    private func shouldRetry(_ status: Int) -> Bool {
+        status == 408 || status == 429 || (500..<600).contains(status)
+    }
+
+    private func cacheKey(for request: GSXRequest, policy: GSXRequestPolicy) -> String {
+        let name = policy.name ?? request.path
+        let body = request.body?.base64EncodedString() ?? ""
+        return "\(name)|\(request.method.uppercased())|\(request.path)|\(body)"
+    }
+}
+
+private struct GSXCachedResponse {
+    var response: GSXResponse
+    var createdAt: Date
+
+    func isExpired(ttlSeconds: Int) -> Bool {
+        ttlSeconds <= 0 || Date().timeIntervalSince(createdAt) > Double(ttlSeconds)
     }
 }
 

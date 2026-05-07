@@ -104,9 +104,17 @@ type routeDeclaration struct {
 }
 
 type endpointDeclaration struct {
-	Name   string `json:"name"`
-	Method string `json:"method"`
-	Path   string `json:"path"`
+	Name            string             `json:"name"`
+	Method          string             `json:"method"`
+	Path            string             `json:"path"`
+	Params          []paramDeclaration `json:"params,omitempty"`
+	Input           []paramDeclaration `json:"input,omitempty"`
+	Output          []paramDeclaration `json:"output,omitempty"`
+	CacheTTLSeconds int                `json:"cache_ttl_seconds,omitempty"`
+	Invalidates     []string           `json:"invalidates,omitempty"`
+	Optimistic      string             `json:"optimistic,omitempty"`
+	Auth            string             `json:"auth,omitempty"`
+	RetryAttempts   int                `json:"retry_attempts,omitempty"`
 }
 
 type paramDeclaration struct {
