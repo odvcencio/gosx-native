@@ -129,6 +129,7 @@ type endpointDeclaration struct {
 	RetryAttempts   int                `json:"retry_attempts,omitempty"`
 	RetryBaseMillis int                `json:"retry_base_delay_millis,omitempty"`
 	RetryMaxMillis  int                `json:"retry_max_delay_millis,omitempty"`
+	NetworkPolicy   string             `json:"network_policy,omitempty"`
 }
 
 type capabilityDeclaration struct {

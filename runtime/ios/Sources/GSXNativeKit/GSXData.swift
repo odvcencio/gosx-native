@@ -101,6 +101,7 @@ public struct GSXRequestPolicy: Equatable {
     public var retryAttempts: Int?
     public var retryBaseDelayMillis: Int?
     public var retryMaxDelayMillis: Int?
+    public var networkPolicy: GSXNetworkPolicy
 
     public init(
         name: String? = nil,
@@ -110,7 +111,8 @@ public struct GSXRequestPolicy: Equatable {
         auth: GSXAuthRequirement = .optional,
         retryAttempts: Int? = nil,
         retryBaseDelayMillis: Int? = nil,
-        retryMaxDelayMillis: Int? = nil
+        retryMaxDelayMillis: Int? = nil,
+        networkPolicy: GSXNetworkPolicy = .onlineOnly
     ) {
         self.name = name
         self.cacheTTLSeconds = cacheTTLSeconds
@@ -120,6 +122,7 @@ public struct GSXRequestPolicy: Equatable {
         self.retryAttempts = retryAttempts
         self.retryBaseDelayMillis = retryBaseDelayMillis
         self.retryMaxDelayMillis = retryMaxDelayMillis
+        self.networkPolicy = networkPolicy
     }
 }
 
@@ -307,15 +310,32 @@ public final class GSXHTTPTransport: GSXTransport {
 public final class GSXDataClient {
     private let transport: any GSXTransport
     private let diagnostics: any GSXDiagnosticsRecorder
+    private let networkStatusProvider: any GSXNetworkStatusProvider
     private var cache: [String: GSXCachedResponse] = [:]
 
-    public init(transport: any GSXTransport, diagnostics: any GSXDiagnosticsRecorder = GSXDiagnostics.shared) {
+    public init(
+        transport: any GSXTransport,
+        diagnostics: any GSXDiagnosticsRecorder = GSXDiagnostics.shared,
+        networkStatusProvider: any GSXNetworkStatusProvider = GSXStaticNetworkStatusProvider()
+    ) {
         self.transport = transport
         self.diagnostics = diagnostics
+        self.networkStatusProvider = networkStatusProvider
     }
 
     public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:]) {
         self.init(transport: GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders))
+    }
+
+    public convenience init(
+        baseURL: URL,
+        defaultHeaders: [String: String] = [:],
+        networkStatusProvider: any GSXNetworkStatusProvider
+    ) {
+        self.init(
+            transport: GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders),
+            networkStatusProvider: networkStatusProvider
+        )
     }
 
     public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) {
@@ -327,8 +347,34 @@ public final class GSXDataClient {
         )
     }
 
+    public convenience init(
+        baseURL: URL,
+        defaultHeaders: [String: String] = [:],
+        tokenStore: any GSXTokenStore,
+        networkStatusProvider: any GSXNetworkStatusProvider
+    ) {
+        self.init(
+            transport: GSXBearerAuthTransport(
+                base: GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders),
+                tokenStore: tokenStore
+            ),
+            networkStatusProvider: networkStatusProvider
+        )
+    }
+
     public convenience init(baseURL: String, defaultHeaders: [String: String] = [:]) throws {
         self.init(transport: try GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders))
+    }
+
+    public convenience init(
+        baseURL: String,
+        defaultHeaders: [String: String] = [:],
+        networkStatusProvider: any GSXNetworkStatusProvider
+    ) throws {
+        self.init(
+            transport: try GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders),
+            networkStatusProvider: networkStatusProvider
+        )
     }
 
     public convenience init(baseURL: String, defaultHeaders: [String: String] = [:], tokenStore: any GSXTokenStore) throws {
@@ -340,20 +386,52 @@ public final class GSXDataClient {
         )
     }
 
+    public convenience init(
+        baseURL: String,
+        defaultHeaders: [String: String] = [:],
+        tokenStore: any GSXTokenStore,
+        networkStatusProvider: any GSXNetworkStatusProvider
+    ) throws {
+        self.init(
+            transport: GSXBearerAuthTransport(
+                base: try GSXHTTPTransport(baseURL: baseURL, defaultHeaders: defaultHeaders),
+                tokenStore: tokenStore
+            ),
+            networkStatusProvider: networkStatusProvider
+        )
+    }
+
     public func load(_ request: GSXRequest, policy: GSXRequestPolicy = GSXRequestPolicy()) async throws -> GSXResponse {
         let key = cacheKey(for: request, policy: policy)
-        if let ttl = policy.cacheTTLSeconds, request.method.uppercased() == "GET", let cached = cache[key], !cached.isExpired(ttlSeconds: ttl) {
-            return cached.response
+        let isGET = request.method.uppercased() == "GET"
+        let status = await networkStatusProvider.status()
+        if let ttl = policy.cacheTTLSeconds, isGET, let cached = cache[key] {
+            if !cached.isExpired(ttlSeconds: ttl) {
+                return cached.response
+            }
+            if status == .offline && policy.networkPolicy == .cacheWhenOffline {
+                recordDataEvent(
+                    name: "cache_offline",
+                    level: .info,
+                    message: "Serving cached GSX response while offline",
+                    request: request,
+                    policy: policy,
+                    attempt: 0
+                )
+                return cached.response
+            }
         }
+        try enforceNetworkPolicy(status: status, request: request, policy: policy)
 
         let response = try await sendWithRetry(request, policy: policy)
-        if let ttl = policy.cacheTTLSeconds, ttl > 0, request.method.uppercased() == "GET" {
+        if let ttl = policy.cacheTTLSeconds, ttl > 0, isGET {
             cache[key] = GSXCachedResponse(response: response, createdAt: Date())
         }
         return response
     }
 
     public func submit(_ request: GSXRequest, policy: GSXRequestPolicy = GSXRequestPolicy()) async throws -> GSXResponse {
+        try enforceNetworkPolicy(status: await networkStatusProvider.status(), request: request, policy: policy)
         let response = try await sendWithRetry(request, policy: policy)
         invalidate(policy.invalidates)
         return response
@@ -434,6 +512,21 @@ public final class GSXDataClient {
         throw lastError ?? GSXDataError.invalidResponse
     }
 
+    private func enforceNetworkPolicy(status: GSXNetworkStatus, request: GSXRequest, policy: GSXRequestPolicy) throws {
+        guard status == .offline, policy.networkPolicy != .alwaysAllow else {
+            return
+        }
+        recordDataEvent(
+            name: "offline_blocked",
+            level: .warning,
+            message: "GSX request blocked while offline",
+            request: request,
+            policy: policy,
+            attempt: 0
+        )
+        throw GSXNetworkPolicyError.offline(policy: policy.networkPolicy)
+    }
+
     private func recordDataEvent(
         name: String,
         level: GSXDiagnosticLevel,
@@ -449,6 +542,7 @@ public final class GSXDataClient {
             "attempt": String(attempt),
             "max_attempts": String(max(1, policy.retryAttempts ?? 1)),
             "auth": policy.auth.rawValue,
+            "network_policy": policy.networkPolicy.rawValue,
             "has_body": request.body == nil ? "false" : "true",
             "body_bytes": String(request.body?.count ?? 0),
         ]

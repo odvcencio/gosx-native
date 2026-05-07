@@ -266,6 +266,7 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 		"retry", "retries", "retry_attempts",
 		"backoff", "retry_backoff", "retry_base_delay", "retry_base_delay_millis",
 		"max_backoff", "retry_max_delay", "retry_max_delay_millis",
+		"network", "network_policy",
 	); err != nil {
 		return endpointDeclaration{}, err
 	}
@@ -301,6 +302,10 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 	if err != nil {
 		return endpointDeclaration{}, err
 	}
+	networkPolicy, err := parseSourceNetworkPolicy(firstNonEmptyField(fields, "network_policy", "network"))
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
 	return endpointDeclaration{
 		Name:            firstField(fields, "name"),
 		Method:          firstField(fields, "method"),
@@ -315,6 +320,7 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 		RetryAttempts:   retryAttempts,
 		RetryBaseMillis: retryBaseMillis,
 		RetryMaxMillis:  retryMaxMillis,
+		NetworkPolicy:   networkPolicy,
 	}, nil
 }
 
@@ -536,6 +542,24 @@ func parseSourceAuth(value string) (string, error) {
 	}
 }
 
+func parseSourceNetworkPolicy(value string) (string, error) {
+	raw := strings.TrimSpace(value)
+	normalized := strings.ToLower(raw)
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	switch normalized {
+	case "":
+		return "", nil
+	case "online", "online_only", "onlineonly", "required":
+		return "online_only", nil
+	case "cache", "cache_offline", "cache_when_offline", "cachewhenoffline", "offline_cache":
+		return "cache_when_offline", nil
+	case "always", "always_allow", "alwaysallow", "allow_offline", "offline_allow":
+		return "always_allow", nil
+	default:
+		return "", fmt.Errorf("network policy %q must be online_only, cache_when_offline, or always_allow", raw)
+	}
+}
+
 func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 	seen := make(map[string]bool, len(endpoints))
 	for _, endpoint := range endpoints {
@@ -574,6 +598,9 @@ func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 		}
 		if _, err := parseSourceAuth(endpoint.Auth); err != nil {
 			return fmt.Errorf("%s %s has invalid auth policy: %w", kind, endpoint.Name, err)
+		}
+		if _, err := parseSourceNetworkPolicy(endpoint.NetworkPolicy); err != nil {
+			return fmt.Errorf("%s %s has invalid network policy: %w", kind, endpoint.Name, err)
 		}
 		if endpoint.CacheTTLSeconds < 0 {
 			return fmt.Errorf("%s %s cache TTL must be non-negative", kind, endpoint.Name)
@@ -821,6 +848,7 @@ func emitSwiftGeneratedSpecs(buf *bytes.Buffer) {
 	fmt.Fprintln(buf, "    public let retryAttempts: Int?")
 	fmt.Fprintln(buf, "    public let retryBaseDelayMillis: Int?")
 	fmt.Fprintln(buf, "    public let retryMaxDelayMillis: Int?")
+	fmt.Fprintln(buf, "    public let networkPolicy: GSXNetworkPolicy")
 	fmt.Fprintln(buf, "}")
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "public struct GSXGeneratedCapabilitySpec: Equatable {")
@@ -863,7 +891,7 @@ func emitSwiftEndpointSpecs(buf *bytes.Buffer, enumName string, endpoints []endp
 	fmt.Fprintf(buf, "public enum %s {\n", enumName)
 	fmt.Fprintln(buf, "    public static let specs: [GSXGeneratedEndpointSpec] = [")
 	for _, endpoint := range endpoints {
-		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name: %s, method: %s, path: %s, params: %s, input: %s, output: %s, cacheTTLSeconds: %s, invalidates: %s, optimistic: %s, auth: %s, retryAttempts: %s, retryBaseDelayMillis: %s, retryMaxDelayMillis: %s),\n",
+		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name: %s, method: %s, path: %s, params: %s, input: %s, output: %s, cacheTTLSeconds: %s, invalidates: %s, optimistic: %s, auth: %s, retryAttempts: %s, retryBaseDelayMillis: %s, retryMaxDelayMillis: %s, networkPolicy: %s),\n",
 			strconv.Quote(endpoint.Name),
 			strconv.Quote(endpointMethod(endpoint, defaultMethod)),
 			strconv.Quote(endpoint.Path),
@@ -877,6 +905,7 @@ func emitSwiftEndpointSpecs(buf *bytes.Buffer, enumName string, endpoints []endp
 			swiftOptionalInt(endpoint.RetryAttempts),
 			swiftOptionalInt(endpoint.RetryBaseMillis),
 			swiftOptionalInt(endpoint.RetryMaxMillis),
+			swiftNetworkPolicy(endpoint.NetworkPolicy),
 		)
 	}
 	fmt.Fprintln(buf, "    ]")
@@ -941,6 +970,10 @@ func emitSwiftEndpointClient(buf *bytes.Buffer, className, operation string, end
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "    public convenience init(transport: any GSXTransport) {")
 	fmt.Fprintln(buf, "        self.init(client: GSXDataClient(transport: transport))")
+	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public convenience init(transport: any GSXTransport, networkStatusProvider: any GSXNetworkStatusProvider) {")
+	fmt.Fprintln(buf, "        self.init(client: GSXDataClient(transport: transport, networkStatusProvider: networkStatusProvider))")
 	fmt.Fprintln(buf, "    }")
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "    public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:]) {")
@@ -1109,6 +1142,8 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilitySpec")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXDataClient")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXHTTPTransport")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXNetworkPolicy")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXNetworkStatusProvider")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRequest")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXRequestPolicy")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXResponse")
@@ -1178,6 +1213,7 @@ func emitKotlinGeneratedSpecs(buf *bytes.Buffer) {
 	fmt.Fprintln(buf, "    val retryAttempts: Int? = null,")
 	fmt.Fprintln(buf, "    val retryBaseDelayMillis: Int? = null,")
 	fmt.Fprintln(buf, "    val retryMaxDelayMillis: Int? = null,")
+	fmt.Fprintln(buf, "    val networkPolicy: GSXNetworkPolicy = GSXNetworkPolicy.OnlineOnly,")
 	fmt.Fprintln(buf, ")")
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "data class GSXGeneratedCapabilitySpec(")
@@ -1218,7 +1254,7 @@ func emitKotlinEndpointSpecs(buf *bytes.Buffer, objectName string, endpoints []e
 	fmt.Fprintf(buf, "object %s {\n", objectName)
 	fmt.Fprintln(buf, "    val specs: List<GSXGeneratedEndpointSpec> = listOf(")
 	for _, endpoint := range endpoints {
-		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name = %s, method = %s, path = %s, params = %s, input = %s, output = %s, cacheTTLSeconds = %s, invalidates = %s, optimistic = %s, auth = %s, retryAttempts = %s, retryBaseDelayMillis = %s, retryMaxDelayMillis = %s),\n",
+		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name = %s, method = %s, path = %s, params = %s, input = %s, output = %s, cacheTTLSeconds = %s, invalidates = %s, optimistic = %s, auth = %s, retryAttempts = %s, retryBaseDelayMillis = %s, retryMaxDelayMillis = %s, networkPolicy = %s),\n",
 			strconv.Quote(endpoint.Name),
 			strconv.Quote(endpointMethod(endpoint, defaultMethod)),
 			strconv.Quote(endpoint.Path),
@@ -1232,6 +1268,7 @@ func emitKotlinEndpointSpecs(buf *bytes.Buffer, objectName string, endpoints []e
 			kotlinOptionalInt(endpoint.RetryAttempts),
 			kotlinOptionalInt(endpoint.RetryBaseMillis),
 			kotlinOptionalInt(endpoint.RetryMaxMillis),
+			kotlinNetworkPolicy(endpoint.NetworkPolicy),
 		)
 	}
 	fmt.Fprintln(buf, "    )")
@@ -1289,6 +1326,10 @@ func emitKotlinEndpointClient(buf *bytes.Buffer, className, operation string, en
 	fmt.Fprintln(buf, "    private val client: GSXDataClient,")
 	fmt.Fprintln(buf, ") {")
 	fmt.Fprintln(buf, "    constructor(transport: GSXTransport) : this(GSXDataClient(transport))")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    constructor(transport: GSXTransport, networkStatusProvider: GSXNetworkStatusProvider) : this(")
+	fmt.Fprintln(buf, "        GSXDataClient(transport = transport, networkStatusProvider = networkStatusProvider),")
+	fmt.Fprintln(buf, "    )")
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "    constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap()) : this(")
 	fmt.Fprintln(buf, "        GSXDataClient(GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders)),")
@@ -1622,6 +1663,30 @@ func kotlinAuthRequirement(value string) string {
 	}
 }
 
+func swiftNetworkPolicy(value string) string {
+	normalized, _ := parseSourceNetworkPolicy(value)
+	switch normalized {
+	case "cache_when_offline":
+		return "GSXNetworkPolicy.cacheWhenOffline"
+	case "always_allow":
+		return "GSXNetworkPolicy.alwaysAllow"
+	default:
+		return "GSXNetworkPolicy.onlineOnly"
+	}
+}
+
+func kotlinNetworkPolicy(value string) string {
+	normalized, _ := parseSourceNetworkPolicy(value)
+	switch normalized {
+	case "cache_when_offline":
+		return "GSXNetworkPolicy.CacheWhenOffline"
+	case "always_allow":
+		return "GSXNetworkPolicy.AlwaysAllow"
+	default:
+		return "GSXNetworkPolicy.OnlineOnly"
+	}
+}
+
 func swiftEndpointModelName(className string, endpoint endpointDeclaration, suffix string) string {
 	return endpointModelName(className, endpoint, suffix)
 }
@@ -1735,6 +1800,9 @@ func swiftRequestPolicy(endpoint endpointDeclaration) string {
 	if endpoint.RetryMaxMillis > 0 {
 		parts = append(parts, fmt.Sprintf("retryMaxDelayMillis: %d", endpoint.RetryMaxMillis))
 	}
+	if endpoint.NetworkPolicy != "" {
+		parts = append(parts, "networkPolicy: "+swiftNetworkPolicy(endpoint.NetworkPolicy))
+	}
 	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
 }
 
@@ -1771,6 +1839,9 @@ func kotlinRequestPolicy(endpoint endpointDeclaration) string {
 	}
 	if endpoint.RetryMaxMillis > 0 {
 		parts = append(parts, fmt.Sprintf("retryMaxDelayMillis = %d", endpoint.RetryMaxMillis))
+	}
+	if endpoint.NetworkPolicy != "" {
+		parts = append(parts, "networkPolicy = "+kotlinNetworkPolicy(endpoint.NetworkPolicy))
 	}
 	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
 }

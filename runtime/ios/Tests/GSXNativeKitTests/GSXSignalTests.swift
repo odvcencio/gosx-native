@@ -116,6 +116,66 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 3)
     }
 
+    func testDataClientBlocksOfflineRequests() async throws {
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("ok".utf8)))
+        let client = GSXDataClient(
+            transport: transport,
+            networkStatusProvider: GSXStaticNetworkStatusProvider(.offline)
+        )
+
+        do {
+            _ = try await client.load(
+                GSXRequest(path: "/offline"),
+                policy: GSXRequestPolicy(name: "offline")
+            )
+            XCTFail("expected offline policy error")
+        } catch GSXNetworkPolicyError.offline(let policy) {
+            XCTAssertEqual(policy, .onlineOnly)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(transport.requests.count, 0)
+    }
+
+    func testDataClientAllowsAlwaysAllowPolicyWhileOffline() async throws {
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("ok".utf8)))
+        let client = GSXDataClient(
+            transport: transport,
+            networkStatusProvider: GSXStaticNetworkStatusProvider(.offline)
+        )
+
+        let response = try await client.submit(
+            GSXRequest(method: "POST", path: "/local-sync"),
+            policy: GSXRequestPolicy(name: "localSync", networkPolicy: .alwaysAllow)
+        )
+
+        XCTAssertEqual(response.body, Data("ok".utf8))
+        XCTAssertEqual(transport.requests.count, 1)
+    }
+
+    func testDataClientServesCachedLoadersWhileOffline() async throws {
+        let provider = GSXManualNetworkStatusProvider(.online)
+        let transport = SequenceTransport(responses: [
+            GSXResponse(status: 200, body: Data("cached".utf8)),
+            GSXResponse(status: 200, body: Data("network".utf8)),
+        ])
+        let client = GSXDataClient(transport: transport, networkStatusProvider: provider)
+        let policy = GSXRequestPolicy(
+            name: "loadGreeting",
+            cacheTTLSeconds: 60,
+            networkPolicy: .cacheWhenOffline
+        )
+
+        let online = try await client.load(GSXRequest(path: "/greeting"), policy: policy)
+        await provider.setStatus(.offline)
+        let offline = try await client.load(GSXRequest(path: "/greeting"), policy: policy)
+
+        XCTAssertEqual(online.body, Data("cached".utf8))
+        XCTAssertEqual(offline.body, Data("cached".utf8))
+        XCTAssertEqual(transport.requests.count, 1)
+    }
+
     func testDataClientRetriesTransientResponses() async throws {
         let transport = SequenceTransport(responses: [
             GSXResponse(status: 500, body: Data("retry".utf8)),

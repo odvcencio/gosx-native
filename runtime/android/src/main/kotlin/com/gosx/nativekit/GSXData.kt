@@ -86,6 +86,7 @@ data class GSXRequestPolicy(
     val retryAttempts: Int? = null,
     val retryBaseDelayMillis: Int? = null,
     val retryMaxDelayMillis: Int? = null,
+    val networkPolicy: GSXNetworkPolicy = GSXNetworkPolicy.OnlineOnly,
 )
 
 data class GSXValidationFailure(
@@ -259,11 +260,21 @@ class GSXHTTPTransport(
 class GSXDataClient(
     private val transport: GSXTransport,
     private val diagnostics: GSXDiagnosticsRecorder = GSXDiagnostics,
+    private val networkStatusProvider: GSXNetworkStatusProvider = GSXStaticNetworkStatusProvider(),
 ) {
     private val cache = ConcurrentHashMap<String, CachedResponse>()
 
     constructor(baseURL: String, defaultHeaders: Map<String, String> = emptyMap()) : this(
         GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders),
+    )
+
+    constructor(
+        baseURL: String,
+        defaultHeaders: Map<String, String> = emptyMap(),
+        networkStatusProvider: GSXNetworkStatusProvider,
+    ) : this(
+        transport = GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders),
+        networkStatusProvider = networkStatusProvider,
     )
 
     constructor(
@@ -277,22 +288,49 @@ class GSXDataClient(
         ),
     )
 
+    constructor(
+        baseURL: String,
+        defaultHeaders: Map<String, String> = emptyMap(),
+        tokenStore: GSXTokenStore,
+        networkStatusProvider: GSXNetworkStatusProvider,
+    ) : this(
+        transport = GSXBearerAuthTransport(
+            base = GSXHTTPTransport(baseURL = baseURL, defaultHeaders = defaultHeaders),
+            tokenStore = tokenStore,
+        ),
+        networkStatusProvider = networkStatusProvider,
+    )
+
     suspend fun load(
         request: GSXRequest,
         policy: GSXRequestPolicy = GSXRequestPolicy(),
     ): GSXResponse {
         val key = cacheKey(request, policy)
         val ttl = policy.cacheTTLSeconds
-        if (ttl != null && request.method.equals("GET", ignoreCase = true)) {
+        val isGet = request.method.equals("GET", ignoreCase = true)
+        val status = networkStatusProvider.status()
+        if (ttl != null && isGet) {
             cache[key]?.let { cached ->
                 if (!cached.isExpired(ttl)) {
                     return cached.response
                 }
+                if (status == GSXNetworkStatus.Offline && policy.networkPolicy == GSXNetworkPolicy.CacheWhenOffline) {
+                    recordDataEvent(
+                        name = "cache_offline",
+                        level = GSXDiagnosticLevel.Info,
+                        message = "Serving cached GSX response while offline",
+                        request = request,
+                        policy = policy,
+                        attempt = 0,
+                    )
+                    return cached.response
+                }
             }
         }
+        enforceNetworkPolicy(status, request, policy)
 
         val response = sendWithRetry(request, policy)
-        if (ttl != null && ttl > 0 && request.method.equals("GET", ignoreCase = true)) {
+        if (ttl != null && ttl > 0 && isGet) {
             cache[key] = CachedResponse(response = response, createdAtMillis = System.currentTimeMillis())
         }
         return response
@@ -302,6 +340,7 @@ class GSXDataClient(
         request: GSXRequest,
         policy: GSXRequestPolicy = GSXRequestPolicy(),
     ): GSXResponse {
+        enforceNetworkPolicy(networkStatusProvider.status(), request, policy)
         val response = sendWithRetry(request, policy)
         invalidate(policy.invalidates)
         return response
@@ -377,6 +416,25 @@ class GSXDataClient(
         throw lastError ?: GSXTransportException("GSX request failed without a response")
     }
 
+    private fun enforceNetworkPolicy(
+        status: GSXNetworkStatus,
+        request: GSXRequest,
+        policy: GSXRequestPolicy,
+    ) {
+        if (status != GSXNetworkStatus.Offline || policy.networkPolicy == GSXNetworkPolicy.AlwaysAllow) {
+            return
+        }
+        recordDataEvent(
+            name = "offline_blocked",
+            level = GSXDiagnosticLevel.Warning,
+            message = "GSX request blocked while offline",
+            request = request,
+            policy = policy,
+            attempt = 0,
+        )
+        throw GSXNetworkPolicyException(policy.networkPolicy)
+    }
+
     private fun recordDataEvent(
         name: String,
         level: GSXDiagnosticLevel,
@@ -392,6 +450,7 @@ class GSXDataClient(
             "attempt" to attempt.toString(),
             "max_attempts" to maxOf(1, policy.retryAttempts ?: 1).toString(),
             "auth" to policy.auth.name,
+            "network_policy" to policy.networkPolicy.name,
             "has_body" to (request.body != null).toString(),
             "body_bytes" to (request.body?.size ?: 0).toString(),
         )
