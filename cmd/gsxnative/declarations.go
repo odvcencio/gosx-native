@@ -20,6 +20,7 @@ type sourceDeclarations struct {
 	Routes       []routeDeclaration
 	DataLoaders  []endpointDeclaration
 	Actions      []endpointDeclaration
+	Models       []modelDeclaration
 	Capabilities []capabilityDeclaration
 	Bridges      []bridgeDeclaration
 }
@@ -54,21 +55,25 @@ func validateProjectDeclarations(cfg *projectConfig, mod *nir.Module) error {
 			if !identifierPattern.MatchString(param.Name) {
 				return fmt.Errorf("route %s has invalid param %q", route.Name, param.Name)
 			}
-			if !supportedDeclarationType(param.Type) {
+			if !supportedPrimitiveDeclarationType(param.Type) {
 				return fmt.Errorf("route %s param %s has unsupported type %q", route.Name, param.Name, param.Type)
 			}
 		}
 	}
-	if err := validateEndpoints("data loader", cfg.DataLoaders); err != nil {
+	models, err := validateModels(cfg.Models)
+	if err != nil {
 		return err
 	}
-	if err := validateEndpoints("action", cfg.Actions); err != nil {
+	if err := validateEndpoints("data loader", cfg.DataLoaders, models); err != nil {
+		return err
+	}
+	if err := validateEndpoints("action", cfg.Actions, models); err != nil {
 		return err
 	}
 	if err := validateCapabilities(cfg.Capabilities); err != nil {
 		return err
 	}
-	if err := validateBridges(cfg.Bridges); err != nil {
+	if err := validateBridges(cfg.Bridges, models); err != nil {
 		return err
 	}
 	return validateActionInvalidates(cfg)
@@ -92,6 +97,9 @@ func effectiveProjectConfigForSource(cfg *projectConfig, sourcePath string) (*pr
 	if sourceDecls.hasActions() {
 		effective.Actions = sourceDecls.Actions
 	}
+	if sourceDecls.hasModels() {
+		effective.Models = sourceDecls.Models
+	}
 	if sourceDecls.hasCapabilities() {
 		effective.Capabilities = sourceDecls.Capabilities
 	}
@@ -109,13 +117,14 @@ func cloneProjectConfig(cfg *projectConfig) *projectConfig {
 	clone.Routes = append([]routeDeclaration(nil), cfg.Routes...)
 	clone.DataLoaders = append([]endpointDeclaration(nil), cfg.DataLoaders...)
 	clone.Actions = append([]endpointDeclaration(nil), cfg.Actions...)
+	clone.Models = append([]modelDeclaration(nil), cfg.Models...)
 	clone.Capabilities = append([]capabilityDeclaration(nil), cfg.Capabilities...)
 	clone.Bridges = append([]bridgeDeclaration(nil), cfg.Bridges...)
 	return &clone
 }
 
 func (d sourceDeclarations) hasAny() bool {
-	return d.hasRoutes() || d.hasDataLoaders() || d.hasActions() || d.hasCapabilities() || d.hasBridges()
+	return d.hasRoutes() || d.hasDataLoaders() || d.hasActions() || d.hasModels() || d.hasCapabilities() || d.hasBridges()
 }
 
 func (d sourceDeclarations) hasRoutes() bool {
@@ -128,6 +137,10 @@ func (d sourceDeclarations) hasDataLoaders() bool {
 
 func (d sourceDeclarations) hasActions() bool {
 	return len(d.Actions) > 0
+}
+
+func (d sourceDeclarations) hasModels() bool {
+	return len(d.Models) > 0
 }
 
 func (d sourceDeclarations) hasCapabilities() bool {
@@ -183,6 +196,12 @@ func parseSourceDeclarations(src []byte) (sourceDeclarations, error) {
 				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
 			}
 			decls.Actions = append(decls.Actions, endpoint)
+		case "model":
+			model, err := sourceModelDeclaration(fields)
+			if err != nil {
+				return sourceDeclarations{}, fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			decls.Models = append(decls.Models, model)
 		case "capability":
 			capability, err := sourceCapabilityDeclaration(fields)
 			if err != nil {
@@ -212,7 +231,7 @@ func parseSourceDeclaration(line string) (string, map[string][]string, error) {
 		return "", nil, fmt.Errorf("empty gosx declaration")
 	}
 	kind := strings.ToLower(pieces[0])
-	if kind != "route" && kind != "data" && kind != "action" && kind != "capability" && kind != "bridge" {
+	if kind != "route" && kind != "data" && kind != "action" && kind != "model" && kind != "capability" && kind != "bridge" {
 		return kind, nil, nil
 	}
 	fields := make(map[string][]string, len(pieces)-1)
@@ -339,6 +358,23 @@ func sourceCapabilityDeclaration(fields map[string][]string) (capabilityDeclarat
 		Name:     firstField(fields, "name"),
 		Targets:  parseCapabilityTargets(append(fields["targets"], fields["target"]...)),
 		Required: required,
+	}, nil
+}
+
+func sourceModelDeclaration(fields map[string][]string) (modelDeclaration, error) {
+	if err := requireDeclarationFields("model", fields, "name"); err != nil {
+		return modelDeclaration{}, err
+	}
+	if err := rejectUnknownDeclarationFields("model", fields, "name", "field", "fields"); err != nil {
+		return modelDeclaration{}, err
+	}
+	modelFields, err := parseSourceParams(append(fields["fields"], fields["field"]...))
+	if err != nil {
+		return modelDeclaration{}, err
+	}
+	return modelDeclaration{
+		Name:   firstField(fields, "name"),
+		Fields: modelFields,
 	}, nil
 }
 
@@ -560,7 +596,37 @@ func parseSourceNetworkPolicy(value string) (string, error) {
 	}
 }
 
-func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
+func validateModels(models []modelDeclaration) (map[string]modelDeclaration, error) {
+	seen := make(map[string]modelDeclaration, len(models))
+	for _, model := range models {
+		if !identifierPattern.MatchString(model.Name) {
+			return nil, fmt.Errorf("model %q has invalid name", model.Name)
+		}
+		if _, ok := seen[model.Name]; ok {
+			return nil, fmt.Errorf("duplicate model declaration %q", model.Name)
+		}
+		if len(model.Fields) == 0 {
+			return nil, fmt.Errorf("model %s must declare at least one field", model.Name)
+		}
+		fieldSeen := make(map[string]bool, len(model.Fields))
+		for _, field := range model.Fields {
+			if !identifierPattern.MatchString(field.Name) {
+				return nil, fmt.Errorf("model %s has invalid field %q", model.Name, field.Name)
+			}
+			if fieldSeen[field.Name] {
+				return nil, fmt.Errorf("model %s has duplicate field %q", model.Name, field.Name)
+			}
+			fieldSeen[field.Name] = true
+			if !supportedModelFieldType(field.Type) {
+				return nil, fmt.Errorf("model %s field %s has unsupported type %q", model.Name, field.Name, field.Type)
+			}
+		}
+		seen[model.Name] = model
+	}
+	return seen, nil
+}
+
+func validateEndpoints(kind string, endpoints []endpointDeclaration, models map[string]modelDeclaration) error {
 	seen := make(map[string]bool, len(endpoints))
 	for _, endpoint := range endpoints {
 		if !identifierPattern.MatchString(endpoint.Name) {
@@ -576,13 +642,13 @@ func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 			return fmt.Errorf("duplicate %s declaration %q", kind, endpoint.Name)
 		}
 		seen[endpoint.Name] = true
-		if err := validateEndpointParams(kind, endpoint.Name, "param", endpoint.Params); err != nil {
+		if err := validateEndpointParams(kind, endpoint.Name, "param", endpoint.Params, nil); err != nil {
 			return err
 		}
-		if err := validateEndpointParams(kind, endpoint.Name, "input field", endpoint.Input); err != nil {
+		if err := validateEndpointParams(kind, endpoint.Name, "input field", endpoint.Input, models); err != nil {
 			return err
 		}
-		if err := validateEndpointParams(kind, endpoint.Name, "output field", endpoint.Output); err != nil {
+		if err := validateEndpointParams(kind, endpoint.Name, "output field", endpoint.Output, models); err != nil {
 			return err
 		}
 		if err := validateEndpointMethodParams(kind, endpoint); err != nil {
@@ -643,7 +709,7 @@ func validateCapabilities(capabilities []capabilityDeclaration) error {
 	return nil
 }
 
-func validateBridges(bridges []bridgeDeclaration) error {
+func validateBridges(bridges []bridgeDeclaration, models map[string]modelDeclaration) error {
 	seen := make(map[string]bool, len(bridges))
 	for _, bridge := range bridges {
 		if !identifierPattern.MatchString(bridge.Service) {
@@ -660,10 +726,10 @@ func validateBridges(bridges []bridgeDeclaration) error {
 			return fmt.Errorf("duplicate bridge declaration %q", name)
 		}
 		seen[name] = true
-		if err := validateEndpointParams("bridge", name, "input field", bridge.Input); err != nil {
+		if err := validateEndpointParams("bridge", name, "input field", bridge.Input, models); err != nil {
 			return err
 		}
-		if err := validateEndpointParams("bridge", name, "output field", bridge.Output); err != nil {
+		if err := validateEndpointParams("bridge", name, "output field", bridge.Output, models); err != nil {
 			return err
 		}
 		if err := validateBridgeMethodParams(bridge); err != nil {
@@ -679,13 +745,13 @@ func validateBridges(bridges []bridgeDeclaration) error {
 	return nil
 }
 
-func validateEndpointParams(kind, endpointName, label string, params []paramDeclaration) error {
+func validateEndpointParams(kind, endpointName, label string, params []paramDeclaration, models map[string]modelDeclaration) error {
 	seen := make(map[string]bool, len(params))
 	for _, param := range params {
 		if !identifierPattern.MatchString(param.Name) {
 			return fmt.Errorf("%s %s has invalid %s %q", kind, endpointName, label, param.Name)
 		}
-		if !supportedDeclarationType(param.Type) {
+		if !supportedDeclarationType(param.Type, models) {
 			return fmt.Errorf("%s %s %s %s has unsupported type %q", kind, endpointName, label, param.Name, param.Type)
 		}
 		if seen[param.Name] {
@@ -741,7 +807,19 @@ func validateActionInvalidates(cfg *projectConfig) error {
 	return nil
 }
 
-func supportedDeclarationType(typ string) bool {
+func supportedDeclarationType(typ string, models map[string]modelDeclaration) bool {
+	if supportedPrimitiveDeclarationType(typ) {
+		return true
+	}
+	_, ok := models[strings.TrimSpace(typ)]
+	return ok
+}
+
+func supportedModelFieldType(typ string) bool {
+	return supportedPrimitiveDeclarationType(typ)
+}
+
+func supportedPrimitiveDeclarationType(typ string) bool {
 	switch strings.ToLower(strings.TrimSpace(typ)) {
 	case "", "string", "int", "double", "float", "bool", "boolean":
 		return true
@@ -789,6 +867,10 @@ func emitSwiftDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf)
 	emitSwiftGeneratedSpecs(&buf)
 	fmt.Fprintln(&buf)
+	emitSwiftCustomModels(&buf, cfg.Models)
+	if len(cfg.Models) > 0 {
+		fmt.Fprintln(&buf)
+	}
 	fmt.Fprintln(&buf, "public struct GSXGeneratedRouteSpec: Equatable {")
 	fmt.Fprintln(&buf, "    public let name: String")
 	fmt.Fprintln(&buf, "    public let path: String")
@@ -1011,6 +1093,15 @@ func emitSwiftEndpointClient(buf *bytes.Buffer, className, operation string, end
 	fmt.Fprintln(buf, "}")
 }
 
+func emitSwiftCustomModels(buf *bytes.Buffer, models []modelDeclaration) {
+	for i, model := range models {
+		if i > 0 {
+			fmt.Fprintln(buf)
+		}
+		emitSwiftEndpointModel(buf, modelTypeName(model.Name), model.Fields)
+	}
+}
+
 func emitSwiftEndpointModels(buf *bytes.Buffer, className string, endpoints []endpointDeclaration) {
 	for _, endpoint := range endpoints {
 		if len(endpoint.Input) > 0 {
@@ -1154,6 +1245,10 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf)
 	emitKotlinGeneratedSpecs(&buf)
 	fmt.Fprintln(&buf)
+	emitKotlinCustomModels(&buf, cfg.Models)
+	if len(cfg.Models) > 0 {
+		fmt.Fprintln(&buf)
+	}
 	fmt.Fprintln(&buf, "data class GSXGeneratedRouteSpec(")
 	fmt.Fprintln(&buf, "    val name: String,")
 	fmt.Fprintln(&buf, "    val path: String,")
@@ -1371,6 +1466,15 @@ func emitKotlinEndpointModels(buf *bytes.Buffer, className string, endpoints []e
 	}
 }
 
+func emitKotlinCustomModels(buf *bytes.Buffer, models []modelDeclaration) {
+	for i, model := range models {
+		if i > 0 {
+			fmt.Fprintln(buf)
+		}
+		emitKotlinEndpointOutputModel(buf, modelTypeName(model.Name), model.Fields)
+	}
+}
+
 func emitKotlinEndpointInputModel(buf *bytes.Buffer, name string, fields []paramDeclaration) {
 	fmt.Fprintf(buf, "data class %s(\n", name)
 	for _, field := range fields {
@@ -1399,7 +1503,7 @@ func emitKotlinModelToJSON(buf *bytes.Buffer, fields []paramDeclaration) {
 	fmt.Fprintln(buf, "    fun toJSON(): String {")
 	fmt.Fprintln(buf, "        val objectValue = JSONObject()")
 	for _, field := range fields {
-		fmt.Fprintf(buf, "        objectValue.put(%s, %s)\n", strconv.Quote(field.Name), kotlinIdentifier(field.Name))
+		fmt.Fprintf(buf, "        objectValue.put(%s, %s)\n", strconv.Quote(field.Name), kotlinJSONValue(field))
 	}
 	fmt.Fprintln(buf, "        return objectValue.toString()")
 	fmt.Fprintln(buf, "    }")
@@ -1603,14 +1707,18 @@ func kotlinParamSpecList(params []paramDeclaration) string {
 }
 
 func normalizedDeclarationType(typ string) string {
-	typ = strings.ToLower(strings.TrimSpace(typ))
-	if typ == "" {
+	trimmed := strings.TrimSpace(typ)
+	lower := strings.ToLower(trimmed)
+	if lower == "" {
 		return "string"
 	}
-	if typ == "boolean" {
+	if lower == "boolean" {
 		return "bool"
 	}
-	return typ
+	if supportedPrimitiveDeclarationType(lower) {
+		return lower
+	}
+	return trimmed
 }
 
 func swiftOptionalInt(value int) string {
@@ -1702,6 +1810,10 @@ func endpointModelName(className string, endpoint endpointDeclaration, suffix st
 		prefix = "Endpoint"
 	}
 	return "GSXGenerated" + prefix + pascalIdentifier(endpoint.Name, "Endpoint") + suffix
+}
+
+func modelTypeName(name string) string {
+	return pascalIdentifier(name, "GeneratedModel")
 }
 
 func swiftBridgeModelName(bridge bridgeDeclaration, suffix string) string {
@@ -1866,8 +1978,20 @@ func kotlinJSONGetter(field paramDeclaration) string {
 		return "objectValue.getDouble(" + name + ")"
 	case "bool", "boolean":
 		return "objectValue.getBoolean(" + name + ")"
-	default:
+	case "", "string":
 		return "objectValue.getString(" + name + ")"
+	default:
+		return modelTypeName(field.Type) + ".fromJSON(objectValue.getJSONObject(" + name + ").toString())"
+	}
+}
+
+func kotlinJSONValue(field paramDeclaration) string {
+	name := kotlinIdentifier(field.Name)
+	switch strings.ToLower(strings.TrimSpace(field.Type)) {
+	case "", "string", "int", "double", "float", "bool", "boolean":
+		return name
+	default:
+		return "JSONObject(" + name + ".toJSON())"
 	}
 }
 
@@ -1895,8 +2019,10 @@ func swiftTypeForDecl(typ string) string {
 		return "Double"
 	case "bool", "boolean":
 		return "Bool"
-	default:
+	case "", "string":
 		return "String"
+	default:
+		return modelTypeName(typ)
 	}
 }
 
@@ -1908,8 +2034,10 @@ func kotlinTypeForDecl(typ string) string {
 		return "Double"
 	case "bool", "boolean":
 		return "Boolean"
-	default:
+	case "", "string":
 		return "String"
+	default:
+		return modelTypeName(typ)
 	}
 }
 

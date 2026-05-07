@@ -102,6 +102,7 @@ type projectConfig struct {
 	Routes             []routeDeclaration      `json:"routes,omitempty"`
 	DataLoaders        []endpointDeclaration   `json:"data_loaders,omitempty"`
 	Actions            []endpointDeclaration   `json:"actions,omitempty"`
+	Models             []modelDeclaration      `json:"models,omitempty"`
 	Capabilities       []capabilityDeclaration `json:"capabilities,omitempty"`
 	Bridges            []bridgeDeclaration     `json:"bridges,omitempty"`
 }
@@ -183,6 +184,11 @@ type bridgeDeclaration struct {
 	Output        []paramDeclaration `json:"output,omitempty"`
 	Auth          string             `json:"auth,omitempty"`
 	RetryAttempts int                `json:"retry_attempts,omitempty"`
+}
+
+type modelDeclaration struct {
+	Name   string             `json:"name"`
+	Fields []paramDeclaration `json:"fields,omitempty"`
 }
 
 type paramDeclaration struct {

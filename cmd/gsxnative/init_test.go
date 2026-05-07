@@ -280,6 +280,7 @@ func TestParseSourceDeclarations(t *testing.T) {
 //gosx:route name=details path=/details/:id component=Home params=id:string,count:int auth=required
 //gosx:data name=loadGreeting method=GET path=/api/greeting params=locale:string output=message:string ttl=45s retry=2 backoff=250ms max_backoff=2s auth=optional network=cache_when_offline
 //gosx:action name=submitGreeting method=POST path=/api/greeting input=message:string output=message:string invalidates=loadGreeting optimistic=echo auth=required retry=3 backoff=100
+//gosx:model name=Profile fields=id:string,displayName:string,postCount:int
 //gosx:capability name=network targets=ios,android required=true
 //gosx:bridge service=Vault method=encrypt path=/api/bridge/Vault.encrypt input=plain:string output=cipher:string auth=required retry=2
 //gosx:native swift
@@ -288,7 +289,7 @@ func TestParseSourceDeclarations(t *testing.T) {
 		t.Fatalf("parse source declarations: %v", err)
 	}
 	if len(decls.Routes) != 2 || len(decls.DataLoaders) != 1 || len(decls.Actions) != 1 ||
-		len(decls.Capabilities) != 1 || len(decls.Bridges) != 1 {
+		len(decls.Models) != 1 || len(decls.Capabilities) != 1 || len(decls.Bridges) != 1 {
 		t.Fatalf("unexpected declarations: %#v", decls)
 	}
 	if got := decls.Routes[1].Params; len(got) != 2 || got[0].Name != "id" || got[1].Type != "int" {
@@ -307,6 +308,9 @@ func TestParseSourceDeclarations(t *testing.T) {
 		action.Optimistic != "echo" || action.Auth != "required" || action.RetryAttempts != 3 ||
 		action.RetryBaseMillis != 100 {
 		t.Fatalf("unexpected action declaration: %#v", action)
+	}
+	if model := decls.Models[0]; model.Name != "Profile" || len(model.Fields) != 3 || model.Fields[2].Type != "int" {
+		t.Fatalf("unexpected model declaration: %#v", model)
 	}
 	if capability := decls.Capabilities[0]; capability.Name != "network" || len(capability.Targets) != 2 || !capability.Required {
 		t.Fatalf("unexpected capability declaration: %#v", capability)
@@ -328,6 +332,14 @@ func TestParseSourceDeclarationsRejectsInvalidNetworkPolicy(t *testing.T) {
 
 func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	cfg := &projectConfig{
+		Models: []modelDeclaration{{
+			Name: "Profile",
+			Fields: []paramDeclaration{
+				{Name: "id", Type: "string"},
+				{Name: "displayName", Type: "string"},
+				{Name: "postCount", Type: "int"},
+			},
+		}},
 		Routes: []routeDeclaration{{
 			Name:      "profile",
 			Path:      "/users/:id/profile",
@@ -340,7 +352,7 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 			Method:          "GET",
 			Path:            "/api/users/:id/profile",
 			Params:          []paramDeclaration{{Name: "id", Type: "string"}, {Name: "includePosts", Type: "bool"}},
-			Output:          []paramDeclaration{{Name: "displayName", Type: "string"}, {Name: "postCount", Type: "int"}},
+			Output:          []paramDeclaration{{Name: "profile", Type: "Profile"}},
 			CacheTTLSeconds: 120,
 			Auth:            "required",
 			RetryAttempts:   3,
@@ -353,8 +365,8 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 			Method:          "PATCH",
 			Path:            "/api/users/:id/profile",
 			Params:          []paramDeclaration{{Name: "id", Type: "string"}},
-			Input:           []paramDeclaration{{Name: "displayName", Type: "string"}},
-			Output:          []paramDeclaration{{Name: "displayName", Type: "string"}},
+			Input:           []paramDeclaration{{Name: "profile", Type: "Profile"}},
+			Output:          []paramDeclaration{{Name: "profile", Type: "Profile"}},
 			Invalidates:     []string{"loadProfile"},
 			Optimistic:      "profileEcho",
 			Auth:            "required",
@@ -372,6 +384,10 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	if !strings.Contains(swift, "public func loadProfile(id: String, includePosts: Bool) async throws -> GSXGeneratedDataLoadProfileResponse") {
 		t.Fatalf("expected Swift typed loader signature, got:\n%s", swift)
 	}
+	if !strings.Contains(swift, "public struct Profile: Codable, Equatable") ||
+		!strings.Contains(swift, "public let profile: Profile") {
+		t.Fatalf("expected Swift custom model declarations, got:\n%s", swift)
+	}
 	if !strings.Contains(swift, `GSXRequestPolicy(name: "loadProfile", cacheTTLSeconds: 120, auth: GSXAuthRequirement.required, retryAttempts: 3, retryBaseDelayMillis: 250, retryMaxDelayMillis: 2000, networkPolicy: GSXNetworkPolicy.cacheWhenOffline)`) {
 		t.Fatalf("expected Swift loader network policy metadata, got:\n%s", swift)
 	}
@@ -386,7 +402,13 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	if !strings.Contains(kotlin, `auth = GSXAuthRequirement.Required`) {
 		t.Fatalf("expected Kotlin route auth metadata, got:\n%s", kotlin)
 	}
-	if !strings.Contains(kotlin, "suspend fun saveProfile(id: String, displayName: String): GSXGeneratedActionSaveProfileResponse") {
+	if !strings.Contains(kotlin, "data class Profile(") ||
+		!strings.Contains(kotlin, "val profile: Profile,") ||
+		!strings.Contains(kotlin, `objectValue.put("profile", JSONObject(profile.toJSON()))`) ||
+		!strings.Contains(kotlin, `profile = Profile.fromJSON(objectValue.getJSONObject("profile").toString())`) {
+		t.Fatalf("expected Kotlin custom model declarations, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, "suspend fun saveProfile(id: String, profile: Profile): GSXGeneratedActionSaveProfileResponse") {
 		t.Fatalf("expected Kotlin typed action signature, got:\n%s", kotlin)
 	}
 	if !strings.Contains(kotlin, `GSXRequestPolicy(name = "loadProfile", cacheTTLSeconds = 120, auth = GSXAuthRequirement.Required, retryAttempts = 3, retryBaseDelayMillis = 250, retryMaxDelayMillis = 2000, networkPolicy = GSXNetworkPolicy.CacheWhenOffline)`) {
