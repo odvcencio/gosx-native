@@ -69,6 +69,8 @@ type buildOptions struct {
 	exportOptions    string
 	exportPath       string
 	artifactManifest string
+	environment      string
+	androidFlavor    string
 	schemeSet        bool
 	simulatorSet     bool
 	configurationSet bool
@@ -86,6 +88,7 @@ type projectConfig struct {
 	Source           string                  `json:"source"`
 	IOS              projectTargetConfig     `json:"ios"`
 	Android          projectTargetConfig     `json:"android"`
+	Environment      string                  `json:"environment,omitempty"`
 	ArtifactManifest string                  `json:"artifact_manifest,omitempty"`
 	Routes           []routeDeclaration      `json:"routes,omitempty"`
 	DataLoaders      []endpointDeclaration   `json:"data_loaders,omitempty"`
@@ -105,6 +108,7 @@ type projectTargetConfig struct {
 	ArchivePath      string   `json:"archive_path,omitempty"`
 	ExportOptions    string   `json:"export_options_plist,omitempty"`
 	ExportPath       string   `json:"export_path,omitempty"`
+	Flavor           string   `json:"flavor,omitempty"`
 	GradleTasks      []string `json:"gradle_tasks,omitempty"`
 	GradleProperties []string `json:"gradle_properties,omitempty"`
 }
@@ -171,6 +175,9 @@ func runBuildWithContext(ctx context.Context, args []string) error {
 	if err := applyBuildProjectConfig(&opts, targetName); err != nil {
 		return err
 	}
+	if err := validateBuildVariantOptions(opts); err != nil {
+		return err
+	}
 	root, err := repoRoot()
 	if err != nil && !opts.hasNativeDefaults(targetName) {
 		return err
@@ -233,6 +240,9 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.exportOptions, "export-options-plist", "", "ExportOptions.plist for iOS release export")
 	fs.StringVar(&opts.exportPath, "export-path", "", "iOS export directory for release builds")
 	fs.StringVar(&opts.artifactManifest, "artifact-manifest", "", "write a JSON manifest describing generated and native build artifacts")
+	fs.StringVar(&opts.environment, "env", "", "build environment name forwarded to native build tools")
+	fs.StringVar(&opts.androidFlavor, "flavor", "", "Android product flavor for default app build tasks")
+	fs.StringVar(&opts.androidFlavor, "android-flavor", "", "Android product flavor for default app build tasks")
 	fs.BoolVar(&opts.release, "release", false, "build the release app variant when the target supports it")
 	fs.BoolVar(&opts.codegenOnly, "codegen-only", false, "regenerate native sources without invoking Xcode or Gradle")
 	fs.Var(&opts.gradleTasks, "task", "Gradle task to run; repeatable")
@@ -248,6 +258,9 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 			return buildOptions{}, fmt.Errorf("project specified both as --project and positional argument")
 		}
 		opts.project = fs.Arg(0)
+	}
+	if err := validateBuildVariantOptions(opts); err != nil {
+		return buildOptions{}, err
 	}
 	return opts, nil
 }
@@ -280,6 +293,9 @@ func applyBuildProjectConfig(opts *buildOptions, targetName string) error {
 	opts.projectBaseDir = baseDir
 	if opts.source == "" && cfg.Source != "" {
 		opts.source = resolveConfigPath(baseDir, cfg.Source)
+	}
+	if opts.environment == "" && cfg.Environment != "" {
+		opts.environment = cfg.Environment
 	}
 	if opts.artifactManifest == "" && cfg.ArtifactManifest != "" {
 		opts.artifactManifest = resolveConfigPath(baseDir, cfg.ArtifactManifest)
@@ -335,6 +351,9 @@ func applyAndroidTargetConfig(opts *buildOptions, cfg projectTargetConfig, baseD
 	}
 	if len(opts.gradleProperties) == 0 && len(cfg.GradleProperties) > 0 {
 		opts.gradleProperties = append(opts.gradleProperties, cfg.GradleProperties...)
+	}
+	if opts.androidFlavor == "" && cfg.Flavor != "" {
+		opts.androidFlavor = cfg.Flavor
 	}
 }
 
@@ -396,6 +415,16 @@ func flagWasProvided(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func validateBuildVariantOptions(opts buildOptions) error {
+	if opts.environment != "" && strings.ContainsAny(opts.environment, " \t\r\n") {
+		return fmt.Errorf("build environment %q must not contain whitespace", opts.environment)
+	}
+	if opts.androidFlavor != "" && !identifierPattern.MatchString(opts.androidFlavor) {
+		return fmt.Errorf("android flavor %q has invalid name", opts.androidFlavor)
+	}
+	return nil
 }
 
 func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts buildOptions) (nativeBuildResult, error) {
@@ -472,14 +501,17 @@ type nativeBuild struct {
 	codegenOnly      bool
 	gradleTasks      []string
 	gradleProperties []string
+	environment      string
+	androidFlavor    string
 	projectConfig    *projectConfig
 }
 
 type buildArtifactManifest struct {
-	Version int                 `json:"version"`
-	Name    string              `json:"name,omitempty"`
-	Module  string              `json:"module,omitempty"`
-	Targets []nativeBuildResult `json:"targets"`
+	Version     int                 `json:"version"`
+	Name        string              `json:"name,omitempty"`
+	Module      string              `json:"module,omitempty"`
+	Environment string              `json:"environment,omitempty"`
+	Targets     []nativeBuildResult `json:"targets"`
 }
 
 type nativeBuildResult struct {
@@ -489,6 +521,8 @@ type nativeBuildResult struct {
 	GeneratedOutput   string             `json:"generated_output"`
 	SupportOutput     string             `json:"support_output,omitempty"`
 	Release           bool               `json:"release"`
+	Environment       string             `json:"environment,omitempty"`
+	Flavor            string             `json:"flavor,omitempty"`
 	CodegenOnly       bool               `json:"codegen_only,omitempty"`
 	BuildSystem       string             `json:"build_system,omitempty"`
 	BuildTasks        []string           `json:"build_tasks,omitempty"`
@@ -518,12 +552,14 @@ func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativ
 		codegenOnly:      opts.codegenOnly,
 		gradleTasks:      append([]string(nil), opts.gradleTasks...),
 		gradleProperties: append([]string(nil), opts.gradleProperties...),
+		environment:      opts.environment,
 		projectConfig:    opts.projectConfig,
 	}
 	switch tgt {
 	case target.Android:
 		cfg.project = firstNonEmpty(opts.androidProject, opts.project, repoDefault(root, "examples/counter-android"))
 		cfg.output = firstNonEmpty(opts.androidOutput, opts.output, filepath.Join(cfg.project, "app/src/main/kotlin/generated/Counter.kt"))
+		cfg.androidFlavor = opts.androidFlavor
 		if opts.projectConfig != nil {
 			cfg.supportOutput = resolveConfigPath(opts.projectBaseDir, firstNonEmpty(opts.projectConfig.Android.SupportOutput, defaultSupportOutput(tgt, cfg.output)))
 		}
@@ -571,6 +607,8 @@ func nativeBuildResultFor(tgt target.Target, cfg nativeBuild) nativeBuildResult 
 		GeneratedOutput: cfg.output,
 		SupportOutput:   cfg.supportOutput,
 		Release:         cfg.release,
+		Environment:     cfg.environment,
+		Flavor:          cfg.androidFlavor,
 		CodegenOnly:     cfg.codegenOnly,
 	}
 	switch tgt {
@@ -578,9 +616,9 @@ func nativeBuildResultFor(tgt target.Target, cfg nativeBuild) nativeBuildResult 
 		tasks := androidBuildTasks(cfg)
 		result.BuildSystem = gradleExecutable(cfg.project)
 		result.BuildTasks = tasks
-		result.BuildProperties = append([]string(nil), cfg.gradleProperties...)
+		result.BuildProperties = androidBuildProperties(cfg)
 		if !cfg.codegenOnly {
-			result.ExpectedArtifacts = androidExpectedArtifacts(cfg.project, tasks)
+			result.ExpectedArtifacts = androidExpectedArtifacts(cfg.project, cfg.androidFlavor, tasks)
 		}
 	case target.IOS:
 		result.BuildSystem = "xcodebuild"
@@ -603,8 +641,9 @@ func writeBuildArtifactManifest(opts buildOptions, results []nativeBuildResult) 
 		return nil
 	}
 	manifest := buildArtifactManifest{
-		Version: 1,
-		Targets: results,
+		Version:     1,
+		Environment: opts.environment,
+		Targets:     results,
 	}
 	if opts.projectConfig != nil {
 		manifest.Name = opts.projectConfig.Name
@@ -633,35 +672,101 @@ func androidBuildTasks(cfg nativeBuild) []string {
 		if cfg.release {
 			tasks = []string{":gsx-nativekit:assembleRelease", ":app:assembleRelease"}
 		}
+		if cfg.androidFlavor != "" {
+			tasks[1] = ":app:" + androidAssembleTask(cfg.androidFlavor, cfg.release)
+		}
 	}
 	return append([]string(nil), tasks...)
 }
 
 func androidBuildArgs(cfg nativeBuild, tasks []string) []string {
 	args := []string{"--no-daemon"}
-	for _, property := range cfg.gradleProperties {
+	for _, property := range androidBuildProperties(cfg) {
 		args = append(args, "-P"+property)
 	}
 	args = append(args, tasks...)
 	return args
 }
 
-func androidExpectedArtifacts(project string, tasks []string) []expectedArtifact {
+func androidBuildProperties(cfg nativeBuild) []string {
+	properties := append([]string(nil), cfg.gradleProperties...)
+	if cfg.environment != "" && !hasGradleProperty(properties, "gsxEnvironment") {
+		properties = append(properties, "gsxEnvironment="+cfg.environment)
+	}
+	return properties
+}
+
+func androidExpectedArtifacts(project, flavor string, tasks []string) []expectedArtifact {
 	var artifacts []expectedArtifact
 	for _, task := range tasks {
 		if strings.Contains(task, ":") && !strings.Contains(task, ":app:") && !strings.HasPrefix(task, "app:") {
 			continue
 		}
+		name := taskName(task)
 		switch {
-		case strings.HasSuffix(task, "assembleDebug"):
+		case name == "assembleDebug":
 			artifacts = appendArtifact(artifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk/debug/app-debug.apk"))
-		case strings.HasSuffix(task, "assembleRelease"):
+		case name == "assembleRelease":
 			artifacts = appendArtifact(artifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk/release/app-release.apk"))
-		case strings.HasSuffix(task, "bundleRelease"):
+		case name == "bundleRelease":
 			artifacts = appendArtifact(artifacts, "android_aab", filepath.Join(project, "app/build/outputs/bundle/release/app-release.aab"))
+		case flavor != "" && name == androidAssembleTask(flavor, false):
+			artifacts = appendArtifact(artifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk", flavor, "debug", "app-"+flavor+"-debug.apk"))
+		case flavor != "" && name == androidAssembleTask(flavor, true):
+			artifacts = appendArtifact(artifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk", flavor, "release", "app-"+flavor+"-release.apk"))
+		case flavor != "" && name == androidBundleTask(flavor):
+			artifacts = appendArtifact(artifacts, "android_aab", filepath.Join(project, "app/build/outputs/bundle", flavor+"Release", "app-"+flavor+"-release.aab"))
 		}
 	}
 	return artifacts
+}
+
+func hasGradleProperty(properties []string, name string) bool {
+	prefix := name + "="
+	for _, property := range properties {
+		if property == name || strings.HasPrefix(property, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func androidAssembleTask(flavor string, release bool) string {
+	buildType := "Debug"
+	if release {
+		buildType = "Release"
+	}
+	if flavor == "" {
+		return "assemble" + buildType
+	}
+	return "assemble" + gradleVariantFlavor(flavor) + buildType
+}
+
+func androidBundleTask(flavor string) string {
+	if flavor == "" {
+		return "bundleRelease"
+	}
+	return "bundle" + gradleVariantFlavor(flavor) + "Release"
+}
+
+func taskName(task string) string {
+	if _, name, ok := strings.Cut(task, ":app:"); ok {
+		return name
+	}
+	if strings.HasPrefix(task, "app:") {
+		return strings.TrimPrefix(task, "app:")
+	}
+	if index := strings.LastIndex(task, ":"); index >= 0 {
+		return task[index+1:]
+	}
+	return task
+}
+
+func gradleVariantFlavor(flavor string) string {
+	if flavor == "" {
+		return ""
+	}
+	return strings.ToUpper(flavor[:1]) + flavor[1:]
 }
 
 func buildIOS(ctx context.Context, cfg nativeBuild) error {
@@ -689,6 +794,9 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	}
 	if archivePath != "" {
 		args = append(args, "-archivePath", archivePath)
+	}
+	if cfg.environment != "" {
+		args = append(args, "GSX_ENVIRONMENT="+cfg.environment)
 	}
 	args = append(args, action)
 	if err := buildRunner.Run(ctx, cfg.project, "xcodebuild", args...); err != nil {

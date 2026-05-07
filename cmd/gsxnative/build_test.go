@@ -121,6 +121,58 @@ func TestBuildAndroidWritesArtifactManifest(t *testing.T) {
 	}
 }
 
+func TestBuildAndroidReleaseEnvFlavorWritesManifest(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--release",
+		"--env", "staging",
+		"--flavor", "demo",
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+	joinedArgs := strings.Join(fake.commands[0].args, " ")
+	if !strings.Contains(joinedArgs, "-PgsxEnvironment=staging") || !strings.Contains(joinedArgs, ":app:assembleDemoRelease") {
+		t.Fatalf("expected environment property and flavor task, got %q", joinedArgs)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	if manifest.Environment != "staging" || len(manifest.Targets) != 1 {
+		t.Fatalf("unexpected artifact manifest: %#v", manifest)
+	}
+	target := manifest.Targets[0]
+	if target.Environment != "staging" || target.Flavor != "demo" {
+		t.Fatalf("unexpected target environment/flavor: %#v", target)
+	}
+	if !containsString(target.BuildProperties, "gsxEnvironment=staging") {
+		t.Fatalf("expected environment Gradle property: %#v", target.BuildProperties)
+	}
+	if !containsArtifact(target.ExpectedArtifacts, "android_apk", filepath.Join(project, "app/build/outputs/apk/demo/release/app-demo-release.apk")) {
+		t.Fatalf("expected flavored release APK artifact in manifest: %#v", target.ExpectedArtifacts)
+	}
+}
+
 func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
@@ -159,6 +211,34 @@ func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	joinedArgs := strings.Join(fake.commands[1].args, " ")
 	if !strings.Contains(joinedArgs, "-scheme CounterDemo") || !strings.Contains(joinedArgs, "platform=iOS Simulator,name=iPhone 16") {
 		t.Fatalf("unexpected xcodebuild args: %q", joinedArgs)
+	}
+}
+
+func TestBuildIOSForwardsEnvironmentBuildSetting(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.swift")
+	err = runBuild([]string{
+		"ios",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--scheme", "CounterDemo",
+		"--env", "staging",
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 2 {
+		t.Fatalf("expected xcodegen and xcodebuild commands, got %#v", fake.commands)
+	}
+	joinedArgs := strings.Join(fake.commands[1].args, " ")
+	if !strings.Contains(joinedArgs, "GSX_ENVIRONMENT=staging") {
+		t.Fatalf("expected iOS environment build setting, got %q", joinedArgs)
 	}
 }
 
