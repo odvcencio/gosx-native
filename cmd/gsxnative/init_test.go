@@ -18,7 +18,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "func Home(props HomeProps) Node")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:route name=home path=/ component=Home")
-	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:data name=loadGreeting method=GET path=/api/greeting output=message:string ttl=30s retry=2 auth=optional")
+	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:data name=loadGreeting method=GET path=/api/greeting output=message:string ttl=30s retry=2 backoff=250ms max_backoff=2s auth=optional")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:capability name=network targets=ios,android required=true")
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:bridge service=Vault method=echo path=/api/bridge/Vault.echo input=message:string output=message:string auth=required retry=2")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
@@ -41,7 +41,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXDataLoaders")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public struct GSXGeneratedDataLoadGreetingResponse")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public func loadGreeting() async throws -> GSXGeneratedDataLoadGreetingResponse")
-	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXRequestPolicy(name: "loadGreeting", cacheTTLSeconds: 30, auth: GSXAuthRequirement.optional, retryAttempts: 2)`)
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXRequestPolicy(name: "loadGreeting", cacheTTLSeconds: 30, auth: GSXAuthRequirement.optional, retryAttempts: 2, retryBaseDelayMillis: 250, retryMaxDelayMillis: 2000)`)
 	assertFileContains(t, filepath.Join(dir, "android/settings.gradle.kts"), "project(\":gsx-nativekit\").projectDir")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/MainActivity.kt"), "rememberGSXRouter(GSXRoutes.home)")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "class NativeCapabilityProvider : GSXCapabilityProvider")
@@ -63,7 +63,7 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXDataLoaders")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "data class GSXGeneratedDataLoadGreetingResponse")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "suspend fun loadGreeting(): GSXGeneratedDataLoadGreetingResponse")
-	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), `GSXRequestPolicy(name = "loadGreeting", cacheTTLSeconds = 30, auth = GSXAuthRequirement.Optional, retryAttempts = 2)`)
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), `GSXRequestPolicy(name = "loadGreeting", cacheTTLSeconds = 30, auth = GSXAuthRequirement.Optional, retryAttempts = 2, retryBaseDelayMillis = 250, retryMaxDelayMillis = 2000)`)
 
 	var cfg projectConfig
 	data, err := os.ReadFile(filepath.Join(dir, "gosxnative.json"))
@@ -261,8 +261,8 @@ func TestParseSourceDeclarations(t *testing.T) {
 	decls, err := parseSourceDeclarations([]byte(`
 //gosx:route name=home path=/ component=Home
 //gosx:route name=details path=/details/:id component=Home params=id:string,count:int auth=required
-//gosx:data name=loadGreeting method=GET path=/api/greeting params=locale:string output=message:string ttl=45s retry=2 auth=optional
-//gosx:action name=submitGreeting method=POST path=/api/greeting input=message:string output=message:string invalidates=loadGreeting optimistic=echo auth=required retry=3
+//gosx:data name=loadGreeting method=GET path=/api/greeting params=locale:string output=message:string ttl=45s retry=2 backoff=250ms max_backoff=2s auth=optional
+//gosx:action name=submitGreeting method=POST path=/api/greeting input=message:string output=message:string invalidates=loadGreeting optimistic=echo auth=required retry=3 backoff=100
 //gosx:capability name=network targets=ios,android required=true
 //gosx:bridge service=Vault method=encrypt path=/api/bridge/Vault.encrypt input=plain:string output=cipher:string auth=required retry=2
 //gosx:native swift
@@ -281,12 +281,14 @@ func TestParseSourceDeclarations(t *testing.T) {
 		t.Fatalf("unexpected route auth: %#v", decls.Routes[1])
 	}
 	if loader := decls.DataLoaders[0]; len(loader.Params) != 1 || len(loader.Output) != 1 ||
-		loader.CacheTTLSeconds != 45 || loader.RetryAttempts != 2 || loader.Auth != "optional" {
+		loader.CacheTTLSeconds != 45 || loader.RetryAttempts != 2 || loader.RetryBaseMillis != 250 ||
+		loader.RetryMaxMillis != 2000 || loader.Auth != "optional" {
 		t.Fatalf("unexpected loader declaration: %#v", loader)
 	}
 	if action := decls.Actions[0]; len(action.Input) != 1 || len(action.Output) != 1 ||
 		len(action.Invalidates) != 1 || action.Invalidates[0] != "loadGreeting" ||
-		action.Optimistic != "echo" || action.Auth != "required" || action.RetryAttempts != 3 {
+		action.Optimistic != "echo" || action.Auth != "required" || action.RetryAttempts != 3 ||
+		action.RetryBaseMillis != 100 {
 		t.Fatalf("unexpected action declaration: %#v", action)
 	}
 	if capability := decls.Capabilities[0]; capability.Name != "network" || len(capability.Targets) != 2 || !capability.Required {
@@ -316,17 +318,20 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 			CacheTTLSeconds: 120,
 			Auth:            "required",
 			RetryAttempts:   3,
+			RetryBaseMillis: 250,
+			RetryMaxMillis:  2000,
 		}},
 		Actions: []endpointDeclaration{{
-			Name:        "saveProfile",
-			Method:      "PATCH",
-			Path:        "/api/users/:id/profile",
-			Params:      []paramDeclaration{{Name: "id", Type: "string"}},
-			Input:       []paramDeclaration{{Name: "displayName", Type: "string"}},
-			Output:      []paramDeclaration{{Name: "displayName", Type: "string"}},
-			Invalidates: []string{"loadProfile"},
-			Optimistic:  "profileEcho",
-			Auth:        "required",
+			Name:            "saveProfile",
+			Method:          "PATCH",
+			Path:            "/api/users/:id/profile",
+			Params:          []paramDeclaration{{Name: "id", Type: "string"}},
+			Input:           []paramDeclaration{{Name: "displayName", Type: "string"}},
+			Output:          []paramDeclaration{{Name: "displayName", Type: "string"}},
+			Invalidates:     []string{"loadProfile"},
+			Optimistic:      "profileEcho",
+			Auth:            "required",
+			RetryBaseMillis: 100,
 		}},
 	}
 
@@ -340,7 +345,7 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	if !strings.Contains(swift, "public func loadProfile(id: String, includePosts: Bool) async throws -> GSXGeneratedDataLoadProfileResponse") {
 		t.Fatalf("expected Swift typed loader signature, got:\n%s", swift)
 	}
-	if !strings.Contains(swift, `GSXRequestPolicy(name: "saveProfile", invalidates: ["loadProfile"], optimistic: "profileEcho", auth: GSXAuthRequirement.required)`) {
+	if !strings.Contains(swift, `GSXRequestPolicy(name: "saveProfile", invalidates: ["loadProfile"], optimistic: "profileEcho", auth: GSXAuthRequirement.required, retryBaseDelayMillis: 100)`) {
 		t.Fatalf("expected Swift action policy metadata, got:\n%s", swift)
 	}
 
@@ -354,7 +359,7 @@ func TestEmitTypedEndpointDeclarations(t *testing.T) {
 	if !strings.Contains(kotlin, "suspend fun saveProfile(id: String, displayName: String): GSXGeneratedActionSaveProfileResponse") {
 		t.Fatalf("expected Kotlin typed action signature, got:\n%s", kotlin)
 	}
-	if !strings.Contains(kotlin, `GSXRequestPolicy(name = "saveProfile", invalidates = listOf("loadProfile"), optimistic = "profileEcho", auth = GSXAuthRequirement.Required)`) {
+	if !strings.Contains(kotlin, `GSXRequestPolicy(name = "saveProfile", invalidates = listOf("loadProfile"), optimistic = "profileEcho", auth = GSXAuthRequirement.Required, retryBaseDelayMillis = 100)`) {
 		t.Fatalf("expected Kotlin action policy metadata, got:\n%s", kotlin)
 	}
 }

@@ -6,6 +6,8 @@ import java.net.URLEncoder
 import java.nio.charset.Charset
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -82,6 +84,8 @@ data class GSXRequestPolicy(
     val optimistic: String? = null,
     val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,
     val retryAttempts: Int? = null,
+    val retryBaseDelayMillis: Int? = null,
+    val retryMaxDelayMillis: Int? = null,
 )
 
 data class GSXValidationFailure(
@@ -320,6 +324,7 @@ class GSXDataClient(
             try {
                 val response = transport.send(request)
                 if (shouldRetry(response.status) && attempt < attempts) {
+                    waitBeforeRetry(policy, attempt)
                     continue
                 }
                 validate(response)
@@ -329,9 +334,38 @@ class GSXDataClient(
                 if (attempt >= attempts) {
                     throw error
                 }
+                waitBeforeRetry(policy, attempt)
             }
         }
         throw lastError ?: GSXTransportException("GSX request failed without a response")
+    }
+
+    private suspend fun waitBeforeRetry(policy: GSXRequestPolicy, attempt: Int) {
+        val delay = retryDelayMillis(policy, attempt)
+        if (delay <= 0) {
+            return
+        }
+        suspendCoroutine<Unit> { continuation ->
+            gsxRetryExecutor.schedule(
+                { continuation.resume(Unit) },
+                delay.toLong(),
+                TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
+    private fun retryDelayMillis(policy: GSXRequestPolicy, attempt: Int): Int {
+        val base = policy.retryBaseDelayMillis ?: return 0
+        if (base <= 0) {
+            return 0
+        }
+        val shift = (attempt - 1).coerceIn(0, 20)
+        val uncapped = base * (1 shl shift)
+        val maxDelay = policy.retryMaxDelayMillis
+        if (maxDelay == null || maxDelay <= 0) {
+            return uncapped
+        }
+        return uncapped.coerceAtMost(maxDelay)
     }
 
     private fun validate(response: GSXResponse) {
@@ -386,6 +420,10 @@ class GSXDataClient(
         fun isExpired(ttlSeconds: Int): Boolean =
             ttlSeconds <= 0 || System.currentTimeMillis() - createdAtMillis > ttlSeconds * 1_000L
     }
+}
+
+private val gsxRetryExecutor = ScheduledThreadPoolExecutor(1) { task ->
+    Thread(task, "GSXRetryDelay").apply { isDaemon = true }
 }
 
 fun interface GSXAction<Input, Output> {

@@ -127,6 +127,8 @@ type endpointDeclaration struct {
 	Optimistic      string             `json:"optimistic,omitempty"`
 	Auth            string             `json:"auth,omitempty"`
 	RetryAttempts   int                `json:"retry_attempts,omitempty"`
+	RetryBaseMillis int                `json:"retry_base_delay_millis,omitempty"`
+	RetryMaxMillis  int                `json:"retry_max_delay_millis,omitempty"`
 }
 
 type capabilityDeclaration struct {

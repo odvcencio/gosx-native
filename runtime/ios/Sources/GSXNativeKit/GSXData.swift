@@ -99,6 +99,8 @@ public struct GSXRequestPolicy: Equatable {
     public var optimistic: String?
     public var auth: GSXAuthRequirement
     public var retryAttempts: Int?
+    public var retryBaseDelayMillis: Int?
+    public var retryMaxDelayMillis: Int?
 
     public init(
         name: String? = nil,
@@ -106,7 +108,9 @@ public struct GSXRequestPolicy: Equatable {
         invalidates: [String] = [],
         optimistic: String? = nil,
         auth: GSXAuthRequirement = .optional,
-        retryAttempts: Int? = nil
+        retryAttempts: Int? = nil,
+        retryBaseDelayMillis: Int? = nil,
+        retryMaxDelayMillis: Int? = nil
     ) {
         self.name = name
         self.cacheTTLSeconds = cacheTTLSeconds
@@ -114,6 +118,8 @@ public struct GSXRequestPolicy: Equatable {
         self.optimistic = optimistic
         self.auth = auth
         self.retryAttempts = retryAttempts
+        self.retryBaseDelayMillis = retryBaseDelayMillis
+        self.retryMaxDelayMillis = retryMaxDelayMillis
     }
 }
 
@@ -374,6 +380,7 @@ public final class GSXDataClient {
             do {
                 let response = try await transport.send(request)
                 if shouldRetry(response.status), attempt < attempts {
+                    try await waitBeforeRetry(policy: policy, attempt: attempt)
                     continue
                 }
                 try validate(response)
@@ -383,9 +390,30 @@ public final class GSXDataClient {
                 if attempt >= attempts {
                     throw error
                 }
+                try await waitBeforeRetry(policy: policy, attempt: attempt)
             }
         }
         throw lastError ?? GSXDataError.invalidResponse
+    }
+
+    private func waitBeforeRetry(policy: GSXRequestPolicy, attempt: Int) async throws {
+        let delay = retryDelayMillis(policy: policy, attempt: attempt)
+        guard delay > 0 else {
+            return
+        }
+        try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+    }
+
+    private func retryDelayMillis(policy: GSXRequestPolicy, attempt: Int) -> Int {
+        guard let base = policy.retryBaseDelayMillis, base > 0 else {
+            return 0
+        }
+        let shift = max(0, min(attempt - 1, 20))
+        let uncapped = base * (1 << shift)
+        guard let maxDelay = policy.retryMaxDelayMillis, maxDelay > 0 else {
+            return uncapped
+        }
+        return min(uncapped, maxDelay)
     }
 
     private func validate(_ response: GSXResponse) throws {

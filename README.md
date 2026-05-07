@@ -19,7 +19,7 @@ See [`docs/superpowers/specs/2026-05-04-gosx-native-design.md`](docs/superpowers
 - **Dev workflow:** `gsxnative dev` now watches GoSX source/config files and regenerates native sources through the build pipeline; hot reload triggers, server proxying, and simulator/device targeting still need production integration.
 - **Release packaging:** Android release tasks and iOS release archive/export defaults are available through `gsxnative build --release`; signing, flavors, environment config, and artifact publishing are not production templates yet.
 - **Scene3D renderer fidelity:** renderer-grade post-fx, real GPU compute, renderer-backed HTML overlays, golden visual conformance, and full Metal/Vulkan-grade `scene.IR` parity remain open.
-- **Operational hardening:** named in-memory caching, validation failures, and simple retry policies are present; structured logging, crash reporting hooks, offline/network policy, backoff controls, and telemetry-safe diagnostics still need runtime APIs.
+- **Operational hardening:** named in-memory caching, validation failures, retry counts, and exponential retry backoff controls are present; structured logging, crash reporting hooks, offline/network policy, and telemetry-safe diagnostics still need runtime APIs.
 
 ## Counter Demos
 

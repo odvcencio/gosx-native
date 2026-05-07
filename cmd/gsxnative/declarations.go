@@ -264,6 +264,8 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 		"invalidates", "invalidate",
 		"optimistic", "auth",
 		"retry", "retries", "retry_attempts",
+		"backoff", "retry_backoff", "retry_base_delay", "retry_base_delay_millis",
+		"max_backoff", "retry_max_delay", "retry_max_delay_millis",
 	); err != nil {
 		return endpointDeclaration{}, err
 	}
@@ -287,6 +289,14 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 	if err != nil {
 		return endpointDeclaration{}, err
 	}
+	retryBaseMillis, err := parseSourceMillis(firstNonEmptyField(fields, "retry_base_delay_millis", "retry_base_delay", "retry_backoff", "backoff"), "retry base delay")
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
+	retryMaxMillis, err := parseSourceMillis(firstNonEmptyField(fields, "retry_max_delay_millis", "retry_max_delay", "max_backoff"), "retry max delay")
+	if err != nil {
+		return endpointDeclaration{}, err
+	}
 	auth, err := parseSourceAuth(firstField(fields, "auth"))
 	if err != nil {
 		return endpointDeclaration{}, err
@@ -303,6 +313,8 @@ func sourceEndpointDeclaration(kind string, fields map[string][]string) (endpoin
 		Optimistic:      firstField(fields, "optimistic"),
 		Auth:            auth,
 		RetryAttempts:   retryAttempts,
+		RetryBaseMillis: retryBaseMillis,
+		RetryMaxMillis:  retryMaxMillis,
 	}, nil
 }
 
@@ -484,6 +496,24 @@ func parseSourcePositiveInt(value string) (int, error) {
 	return parsed, nil
 }
 
+func parseSourceMillis(value, label string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	if parsed, err := strconv.Atoi(value); err == nil {
+		if parsed < 0 {
+			return 0, fmt.Errorf("%s %q must be non-negative", label, value)
+		}
+		return parsed, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < 0 {
+		return 0, fmt.Errorf("%s %q must be a non-negative duration", label, value)
+	}
+	return int(duration / time.Millisecond), nil
+}
+
 func parseSourceBool(value string) (bool, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	switch value {
@@ -550,6 +580,12 @@ func validateEndpoints(kind string, endpoints []endpointDeclaration) error {
 		}
 		if endpoint.RetryAttempts < 0 {
 			return fmt.Errorf("%s %s retry attempts must be non-negative", kind, endpoint.Name)
+		}
+		if endpoint.RetryBaseMillis < 0 {
+			return fmt.Errorf("%s %s retry base delay must be non-negative", kind, endpoint.Name)
+		}
+		if endpoint.RetryMaxMillis < 0 {
+			return fmt.Errorf("%s %s retry max delay must be non-negative", kind, endpoint.Name)
 		}
 	}
 	return nil
@@ -783,6 +819,8 @@ func emitSwiftGeneratedSpecs(buf *bytes.Buffer) {
 	fmt.Fprintln(buf, "    public let optimistic: String?")
 	fmt.Fprintln(buf, "    public let auth: GSXAuthRequirement")
 	fmt.Fprintln(buf, "    public let retryAttempts: Int?")
+	fmt.Fprintln(buf, "    public let retryBaseDelayMillis: Int?")
+	fmt.Fprintln(buf, "    public let retryMaxDelayMillis: Int?")
 	fmt.Fprintln(buf, "}")
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "public struct GSXGeneratedCapabilitySpec: Equatable {")
@@ -825,7 +863,7 @@ func emitSwiftEndpointSpecs(buf *bytes.Buffer, enumName string, endpoints []endp
 	fmt.Fprintf(buf, "public enum %s {\n", enumName)
 	fmt.Fprintln(buf, "    public static let specs: [GSXGeneratedEndpointSpec] = [")
 	for _, endpoint := range endpoints {
-		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name: %s, method: %s, path: %s, params: %s, input: %s, output: %s, cacheTTLSeconds: %s, invalidates: %s, optimistic: %s, auth: %s, retryAttempts: %s),\n",
+		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name: %s, method: %s, path: %s, params: %s, input: %s, output: %s, cacheTTLSeconds: %s, invalidates: %s, optimistic: %s, auth: %s, retryAttempts: %s, retryBaseDelayMillis: %s, retryMaxDelayMillis: %s),\n",
 			strconv.Quote(endpoint.Name),
 			strconv.Quote(endpointMethod(endpoint, defaultMethod)),
 			strconv.Quote(endpoint.Path),
@@ -837,6 +875,8 @@ func emitSwiftEndpointSpecs(buf *bytes.Buffer, enumName string, endpoints []endp
 			swiftOptionalString(endpoint.Optimistic),
 			swiftAuthRequirement(endpoint.Auth),
 			swiftOptionalInt(endpoint.RetryAttempts),
+			swiftOptionalInt(endpoint.RetryBaseMillis),
+			swiftOptionalInt(endpoint.RetryMaxMillis),
 		)
 	}
 	fmt.Fprintln(buf, "    ]")
@@ -1136,6 +1176,8 @@ func emitKotlinGeneratedSpecs(buf *bytes.Buffer) {
 	fmt.Fprintln(buf, "    val optimistic: String? = null,")
 	fmt.Fprintln(buf, "    val auth: GSXAuthRequirement = GSXAuthRequirement.Optional,")
 	fmt.Fprintln(buf, "    val retryAttempts: Int? = null,")
+	fmt.Fprintln(buf, "    val retryBaseDelayMillis: Int? = null,")
+	fmt.Fprintln(buf, "    val retryMaxDelayMillis: Int? = null,")
 	fmt.Fprintln(buf, ")")
 	fmt.Fprintln(buf)
 	fmt.Fprintln(buf, "data class GSXGeneratedCapabilitySpec(")
@@ -1176,7 +1218,7 @@ func emitKotlinEndpointSpecs(buf *bytes.Buffer, objectName string, endpoints []e
 	fmt.Fprintf(buf, "object %s {\n", objectName)
 	fmt.Fprintln(buf, "    val specs: List<GSXGeneratedEndpointSpec> = listOf(")
 	for _, endpoint := range endpoints {
-		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name = %s, method = %s, path = %s, params = %s, input = %s, output = %s, cacheTTLSeconds = %s, invalidates = %s, optimistic = %s, auth = %s, retryAttempts = %s),\n",
+		fmt.Fprintf(buf, "        GSXGeneratedEndpointSpec(name = %s, method = %s, path = %s, params = %s, input = %s, output = %s, cacheTTLSeconds = %s, invalidates = %s, optimistic = %s, auth = %s, retryAttempts = %s, retryBaseDelayMillis = %s, retryMaxDelayMillis = %s),\n",
 			strconv.Quote(endpoint.Name),
 			strconv.Quote(endpointMethod(endpoint, defaultMethod)),
 			strconv.Quote(endpoint.Path),
@@ -1188,6 +1230,8 @@ func emitKotlinEndpointSpecs(buf *bytes.Buffer, objectName string, endpoints []e
 			kotlinOptionalString(endpoint.Optimistic),
 			kotlinAuthRequirement(endpoint.Auth),
 			kotlinOptionalInt(endpoint.RetryAttempts),
+			kotlinOptionalInt(endpoint.RetryBaseMillis),
+			kotlinOptionalInt(endpoint.RetryMaxMillis),
 		)
 	}
 	fmt.Fprintln(buf, "    )")
@@ -1685,6 +1729,12 @@ func swiftRequestPolicy(endpoint endpointDeclaration) string {
 	if endpoint.RetryAttempts > 0 {
 		parts = append(parts, fmt.Sprintf("retryAttempts: %d", endpoint.RetryAttempts))
 	}
+	if endpoint.RetryBaseMillis > 0 {
+		parts = append(parts, fmt.Sprintf("retryBaseDelayMillis: %d", endpoint.RetryBaseMillis))
+	}
+	if endpoint.RetryMaxMillis > 0 {
+		parts = append(parts, fmt.Sprintf("retryMaxDelayMillis: %d", endpoint.RetryMaxMillis))
+	}
 	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
 }
 
@@ -1715,6 +1765,12 @@ func kotlinRequestPolicy(endpoint endpointDeclaration) string {
 	}
 	if endpoint.RetryAttempts > 0 {
 		parts = append(parts, fmt.Sprintf("retryAttempts = %d", endpoint.RetryAttempts))
+	}
+	if endpoint.RetryBaseMillis > 0 {
+		parts = append(parts, fmt.Sprintf("retryBaseDelayMillis = %d", endpoint.RetryBaseMillis))
+	}
+	if endpoint.RetryMaxMillis > 0 {
+		parts = append(parts, fmt.Sprintf("retryMaxDelayMillis = %d", endpoint.RetryMaxMillis))
 	}
 	return "GSXRequestPolicy(" + strings.Join(parts, ", ") + ")"
 }
