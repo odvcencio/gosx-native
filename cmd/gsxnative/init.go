@@ -181,6 +181,7 @@ func scaffoldProject(opts initOptions) error {
 		filepath.Join(iosDir, "project.yml"):                            initXcodeGenProject(opts, iosDir),
 		filepath.Join(iosDir, opts.name, opts.name+"App.swift"):         initSwiftApp(opts.name),
 		filepath.Join(iosDir, opts.name, "Native/BridgeServices.swift"): initSwiftBridgeServices(sourceProjectCfg),
+		filepath.Join(iosDir, opts.name, "Native/Observability.swift"):  initSwiftObservability(),
 		iosOutput:        swiftSource,
 		iosSupportOutput: string(swiftDeclarations),
 		filepath.Join(androidDir, "settings.gradle.kts"):                                                initAndroidSettings(opts, androidDir),
@@ -190,6 +191,7 @@ func scaffoldProject(opts initOptions) error {
 		filepath.Join(androidDir, "app/src/main/res/values/styles.xml"):                                 initAndroidStyles(opts.name),
 		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "MainActivity.kt"):   initAndroidMainActivity(opts),
 		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "BridgeServices.kt"): initAndroidBridgeServices(opts.module, sourceProjectCfg),
+		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "Observability.kt"):  initAndroidObservability(opts.module),
 		androidOutput:        kotlinSource,
 		androidSupportOutput: string(kotlinDeclarations),
 	}
@@ -367,6 +369,10 @@ import GSXNativeKit
 struct %sApp: SwiftUI.App {
     @StateObject private var router = GSXRouter(initial: GSXRoutes.home)
 
+    init() {
+        NativeObservability.install()
+    }
+
     var body: some Scene {
         WindowGroup {
             VStack(spacing: 16) {
@@ -387,6 +393,20 @@ struct %sApp: SwiftUI.App {
     }
 }
 `, appName, splitWords(appName))
+}
+
+func initSwiftObservability() string {
+	return `import GSXNativeKit
+
+enum NativeObservability {
+    static let crashReporter = GSXDiagnosticsCrashReporter()
+
+    static func install() {
+        GSXCrashReporting.shared.configure(reporter: crashReporter)
+        GSXCrashReporting.shared.installUncaughtExceptionHandler()
+    }
+}
+`
 }
 
 func initSwiftBridgeServices(cfg *projectConfig) string {
@@ -632,6 +652,7 @@ import generated.SceneDemoProps
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NativeObservability.install()
         setContent {
             MaterialTheme {
                 val router = rememberGSXRouter(GSXRoutes.home)
@@ -651,6 +672,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 `, opts.module, splitWords(opts.name))
+}
+
+func initAndroidObservability(module string) string {
+	return fmt.Sprintf(`package %s
+
+import com.gosx.nativekit.GSXCrashReporting
+import com.gosx.nativekit.GSXDiagnosticsCrashReporter
+
+object NativeObservability {
+    val crashReporter = GSXDiagnosticsCrashReporter()
+
+    fun install() {
+        GSXCrashReporting.configure(crashReporter)
+        GSXCrashReporting.installDefaultUncaughtExceptionHandler()
+    }
+}
+`, module)
 }
 
 func nativeCapabilityNames(cfg *projectConfig, tgt target.Target) []string {

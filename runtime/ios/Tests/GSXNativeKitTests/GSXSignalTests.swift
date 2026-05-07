@@ -218,6 +218,45 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertFalse(event.attributes.values.contains { $0.contains("private") || $0.contains("sensitive") })
     }
 
+    func testCrashReporterRecordsDiagnosticsEvents() throws {
+        let sink = GSXMemoryDiagnosticsSink()
+        let diagnostics = GSXDiagnostics(sink: sink)
+        let reporter = GSXDiagnosticsCrashReporter(diagnostics: diagnostics)
+
+        reporter.record(GSXCrashReport(
+            name: "RenderFailure",
+            message: "Render failed",
+            severity: .fatal,
+            stack: "frame",
+            attributes: ["route": "home"]
+        ))
+
+        let event = try XCTUnwrap(sink.events().last)
+        XCTAssertEqual(event.category, "crash")
+        XCTAssertEqual(event.name, "RenderFailure")
+        XCTAssertEqual(event.level, .error)
+        XCTAssertEqual(event.attributes["severity"], "fatal")
+        XCTAssertEqual(event.attributes["has_stack"], "true")
+        XCTAssertEqual(event.attributes["route"], "home")
+    }
+
+    func testCrashReportingCaptureRecordsAndRethrows() {
+        let memory = GSXMemoryCrashReporter()
+        let crashReporting = GSXCrashReporting(reporter: memory)
+
+        do {
+            try crashReporting.capture(attributes: ["operation": "load"]) { () -> Void in
+                throw TestFailure.expected
+            }
+            XCTFail("expected captured error")
+        } catch TestFailure.expected {
+            XCTAssertEqual(memory.recordedReports().count, 1)
+            XCTAssertEqual(memory.recordedReports().first?.attributes["operation"], "load")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
     func testDataClientDecodesValidationFailures() async {
         let body = Data(#"{"message":"Invalid","field_errors":{"email":"Required"},"values":{"email":""}}"#.utf8)
         let transport = StaticTransport(response: GSXResponse(status: 422, body: body))
@@ -414,6 +453,10 @@ final class GSXSignalTests: XCTestCase {
 
 private struct GreetingPayload: Codable, Equatable {
     let message: String
+}
+
+private enum TestFailure: Error {
+    case expected
 }
 
 private struct TestBridgeService: GSXBridgeService {
