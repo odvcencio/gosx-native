@@ -849,10 +849,11 @@ func stringAttr(attrs []nir.Attr, name string) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
-	if expr.Kind != "literal" || expr.Literal == nil {
-		return "", false, fmt.Errorf("Scene3D conformance attribute %q must be literal", name)
+	value, err := literalOrSpreadFallback(expr, name)
+	if err != nil {
+		return "", false, err
 	}
-	return expr.Literal.Value, true, nil
+	return value, true, nil
 }
 
 func floatAttrDefault(attrs []nir.Attr, name string, fallback float64) (float64, error) {
@@ -868,10 +869,11 @@ func floatAttr(attrs []nir.Attr, name string) (float64, bool, error) {
 	if !ok {
 		return 0, false, nil
 	}
-	if expr.Kind != "literal" || expr.Literal == nil {
-		return 0, false, fmt.Errorf("Scene3D conformance attribute %q must be literal", name)
+	raw, err := literalOrSpreadFallback(expr, name)
+	if err != nil {
+		return 0, false, err
 	}
-	value, err := strconv.ParseFloat(expr.Literal.Value, 64)
+	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
 		return 0, false, fmt.Errorf("Scene3D conformance attribute %q must be numeric: %w", name, err)
 	}
@@ -891,10 +893,11 @@ func intAttr(attrs []nir.Attr, name string) (int, bool, error) {
 	if !ok {
 		return 0, false, nil
 	}
-	if expr.Kind != "literal" || expr.Literal == nil {
-		return 0, false, fmt.Errorf("Scene3D conformance attribute %q must be literal", name)
+	raw, err := literalOrSpreadFallback(expr, name)
+	if err != nil {
+		return 0, false, err
 	}
-	value, err := strconv.Atoi(expr.Literal.Value)
+	value, err := strconv.Atoi(raw)
 	if err != nil {
 		return 0, false, fmt.Errorf("Scene3D conformance attribute %q must be integer: %w", name, err)
 	}
@@ -914,14 +917,36 @@ func boolAttr(attrs []nir.Attr, name string) (bool, bool, error) {
 	if !ok {
 		return false, false, nil
 	}
-	if expr.Kind != "literal" || expr.Literal == nil {
-		return false, false, fmt.Errorf("Scene3D conformance attribute %q must be literal", name)
+	raw, err := literalOrSpreadFallback(expr, name)
+	if err != nil {
+		return false, false, err
 	}
-	value, err := strconv.ParseBool(expr.Literal.Value)
+	value, err := strconv.ParseBool(raw)
 	if err != nil {
 		return false, false, fmt.Errorf("Scene3D conformance attribute %q must be bool: %w", name, err)
 	}
 	return value, true, nil
+}
+
+func literalOrSpreadFallback(expr nir.RxExpr, name string) (string, error) {
+	if expr.Kind == "literal" && expr.Literal != nil {
+		return expr.Literal.Value, nil
+	}
+	if expr.Kind == "call" && expr.Call != nil && strings.HasPrefix(expr.Call.Callee, "gsxScene3DSpread") {
+		if len(expr.Call.Args) < 3 {
+			return "", fmt.Errorf("Scene3D conformance spread attribute %q must include a fallback value", name)
+		}
+		key := expr.Call.Args[1]
+		if key.Kind == "literal" && key.Literal != nil && key.Literal.Value != name {
+			return "", fmt.Errorf("Scene3D conformance spread attribute %q resolved from unexpected key %q", name, key.Literal.Value)
+		}
+		fallback := expr.Call.Args[2]
+		if fallback.Kind != "literal" || fallback.Literal == nil {
+			return "", fmt.Errorf("Scene3D conformance spread attribute %q fallback must be literal", name)
+		}
+		return fallback.Literal.Value, nil
+	}
+	return "", fmt.Errorf("Scene3D conformance attribute %q must be literal or a typed spread fallback", name)
 }
 
 func floatListAttr(attrs []nir.Attr, name string) ([]float64, bool, error) {

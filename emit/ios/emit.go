@@ -822,7 +822,14 @@ func scene3DDoubleAttrFromAttrs(attrs []nir.Attr, name, fallback string) string 
 	if expr.Kind == "literal" && expr.Literal != nil {
 		return expr.Literal.Value
 	}
+	if scene3DSpreadCall(expr, "gsxScene3DSpreadFloat") {
+		return emitRxExpr(expr)
+	}
 	return "Double(" + emitRxExpr(expr) + ")"
+}
+
+func scene3DSpreadCall(expr *nir.RxExpr, callee string) bool {
+	return expr != nil && expr.Kind == "call" && expr.Call != nil && expr.Call.Callee == callee
 }
 
 func scene3DIntAttr(n *nir.Element, name, fallback string) string {

@@ -102,6 +102,36 @@ func TestCanonicalIRRejectsDynamicConsumedAttribute(t *testing.T) {
 	}
 }
 
+func TestCanonicalIRUsesScene3DSpreadFallbacks(t *testing.T) {
+	sceneElement := &nir.Element{
+		Tag: "scene3d",
+		Scene3D: &nir.Scene3DPayload{Items: []nir.Scene3DItem{{
+			Tag: "mesh",
+			Attrs: []nir.Attr{
+				spreadAttr("id", "gsxScene3DSpreadString", literalExpr("string", "hero")),
+				spreadAttr("kind", "gsxScene3DSpreadString", literalExpr("string", "box")),
+				spreadAttr("color", "gsxScene3DSpreadString", literalExpr("string", "#8de1ff")),
+				spreadAttr("width", "gsxScene3DSpreadFloat", literalExpr("float", "1.8")),
+				spreadAttr("height", "gsxScene3DSpreadFloat", literalExpr("float", "1.2")),
+			},
+		}}},
+	}
+
+	ir, err := CanonicalIR(sceneElement)
+	if err != nil {
+		t.Fatalf("CanonicalIR: %v", err)
+	}
+	if len(ir.Nodes) != 1 || ir.Nodes[0].ID != "hero" || ir.Nodes[0].Mesh.Kind != "box" {
+		t.Fatalf("nodes = %+v", ir.Nodes)
+	}
+	if ir.Nodes[0].Mesh.Width != 1.8 || ir.Nodes[0].Mesh.Height != 1.2 {
+		t.Fatalf("mesh = %+v", ir.Nodes[0].Mesh)
+	}
+	if len(ir.Materials) != 1 || ir.Materials[0].Color != "#8de1ff" {
+		t.Fatalf("materials = %+v", ir.Materials)
+	}
+}
+
 func TestCanonicalIRLowersPostFXEffects(t *testing.T) {
 	sceneElement := &nir.Element{
 		Tag: "scene3d",
@@ -243,6 +273,24 @@ func TestCanonicalIRRejectsInstancedTransformCountMismatch(t *testing.T) {
 func literalAttr(name, typ, value string) nir.Attr {
 	return nir.Attr{
 		Name:  name,
-		Value: nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: typ, Value: value}},
+		Value: literalExpr(typ, value),
+	}
+}
+
+func literalExpr(typ, value string) nir.RxExpr {
+	return nir.RxExpr{Kind: "literal", Literal: &nir.Literal{Type: typ, Value: value}}
+}
+
+func spreadAttr(name, callee string, fallback nir.RxExpr) nir.Attr {
+	return nir.Attr{
+		Name: name,
+		Value: nir.RxExpr{Kind: "call", Call: &nir.Call{
+			Callee: callee,
+			Args: []nir.RxExpr{
+				{Kind: "ref", Ref: "props.mesh"},
+				literalExpr("string", name),
+				fallback,
+			},
+		}},
 	}
 }

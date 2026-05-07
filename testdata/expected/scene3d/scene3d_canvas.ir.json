@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "camera": {
+    "kind": "perspective",
+    "z": 7,
+    "fov": 64,
+    "near": 0.1,
+    "far": 96
+  },
+  "environment": {
+    "background": "#101820"
+  },
+  "materials": [
+    {
+      "kind": "standard",
+      "color": "#8de1ff"
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "mesh",
+      "id": "hero",
+      "transform": {},
+      "mesh": {
+        "kind": "box",
+        "width": 1.4,
+        "height": 1,
+        "depth": 0.7
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "viewport": {
+    "width": 640,
+    "height": 360
+  },
+  "background": "#101820",
+  "camera": {
+    "kind": "perspective"
+  },
+  "commands": [
+    {
+      "op": "node",
+      "tag": "mesh",
+      "shape": "roundRect",
+      "color": "#8de1ff",
+      "materialKind": "standard",
+      "alpha": 0.86,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "size": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      },
+      "screen": {
+        "x": 287.6,
+        "y": 147.6,
+        "width": 64.8,
+        "height": 64.8
+      }
+    }
+  ]
+}
