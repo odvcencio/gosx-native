@@ -23,6 +23,10 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "src/app.gsx"), "//gosx:bridge service=Vault method=echo path=/api/bridge/Vault.echo input=message:string output=message:string auth=required retry=2")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/SampleAppApp.swift"), "GSXRouter(initial: GSXRoutes.home)")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "struct NativeCapabilityProvider: GSXCapabilityProvider")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), `static let available: Set<String> = ["network"]`)
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "final class VaultBridge: GSXBridgeService")
+	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Native/BridgeServices.swift"), "func echo(message: String) async throws -> GSXGeneratedBridgeVaultEchoResponse")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/App.g.swift"), "public struct Home: GSXComponent")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXRoutes")
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), "public enum GSXCapabilities")
@@ -38,6 +42,10 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "ios/SampleApp/Generated/GSXDeclarations.g.swift"), `GSXRequestPolicy(name: "loadGreeting", cacheTTLSeconds: 30, auth: GSXAuthRequirement.optional, retryAttempts: 2)`)
 	assertFileContains(t, filepath.Join(dir, "android/settings.gradle.kts"), "project(\":gsx-nativekit\").projectDir")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/MainActivity.kt"), "rememberGSXRouter(GSXRoutes.home)")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "class NativeCapabilityProvider : GSXCapabilityProvider")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), `val available: Set<String> = setOf("network")`)
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "class VaultBridge : GSXBridgeService")
+	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/com/example/sample/BridgeServices.kt"), "suspend fun echo(message: String): GSXGeneratedBridgeVaultEchoResponse")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/App.kt"), "fun Home(props: HomeProps)")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXRoutes")
 	assertFileContains(t, filepath.Join(dir, "android/app/src/main/kotlin/generated/GSXDeclarations.kt"), "object GSXCapabilities")
@@ -352,6 +360,10 @@ func TestEmitBridgeCapabilityDeclarations(t *testing.T) {
 	if !strings.Contains(swift, `GSXGeneratedCapabilitySpec(name: "secureStorage", targets: ["ios", "android"], required: true)`) {
 		t.Fatalf("expected Swift capability spec, got:\n%s", swift)
 	}
+	if !strings.Contains(swift, "public static func negotiate(") ||
+		!strings.Contains(swift, "try await negotiator.negotiate(required: runtimeSpecs, target: target, path: path)") {
+		t.Fatalf("expected Swift capability negotiation helper, got:\n%s", swift)
+	}
 	if !strings.Contains(swift, "public func vaultEncrypt(plain: String) async throws -> GSXGeneratedBridgeVaultEncryptResponse") {
 		t.Fatalf("expected Swift bridge method, got:\n%s", swift)
 	}
@@ -365,6 +377,10 @@ func TestEmitBridgeCapabilityDeclarations(t *testing.T) {
 	kotlin := string(emitKotlinDeclarations(cfg))
 	if !strings.Contains(kotlin, `GSXGeneratedCapabilitySpec(name = "secureStorage", targets = listOf("ios", "android"), required = true)`) {
 		t.Fatalf("expected Kotlin capability spec, got:\n%s", kotlin)
+	}
+	if !strings.Contains(kotlin, "suspend fun negotiate(") ||
+		!strings.Contains(kotlin, "negotiator.negotiate(required = runtimeSpecs, target = target, path = path)") {
+		t.Fatalf("expected Kotlin capability negotiation helper, got:\n%s", kotlin)
 	}
 	if !strings.Contains(kotlin, "suspend fun vaultEncrypt(plain: String): GSXGeneratedBridgeVaultEncryptResponse") {
 		t.Fatalf("expected Kotlin bridge method, got:\n%s", kotlin)

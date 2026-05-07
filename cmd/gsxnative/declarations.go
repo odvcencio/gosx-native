@@ -848,6 +848,14 @@ func emitSwiftCapabilitySpecs(buf *bytes.Buffer, capabilities []capabilityDeclar
 	fmt.Fprintln(buf, "    public static let runtimeSpecs: [GSXCapabilitySpec] = specs.map { spec in")
 	fmt.Fprintln(buf, "        GSXCapabilitySpec(name: spec.name, targets: spec.targets, required: spec.required)")
 	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    public static func negotiate(")
+	fmt.Fprintln(buf, "        with negotiator: GSXCapabilityNegotiator,")
+	fmt.Fprintln(buf, "        target: String = \"ios\",")
+	fmt.Fprintln(buf, "        path: String = \"/api/capabilities\"")
+	fmt.Fprintln(buf, "    ) async throws -> GSXCapabilityReport {")
+	fmt.Fprintln(buf, "        try await negotiator.negotiate(required: runtimeSpecs, target: target, path: path)")
+	fmt.Fprintln(buf, "    }")
 	fmt.Fprintln(buf, "}")
 }
 
@@ -1046,6 +1054,8 @@ func emitKotlinDeclarations(cfg *projectConfig) []byte {
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXAuthRequirement")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeClient")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityNegotiator")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityReport")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilitySpec")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXDataClient")
 	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXHTTPTransport")
@@ -1187,6 +1197,12 @@ func emitKotlinCapabilitySpecs(buf *bytes.Buffer, capabilities []capabilityDecla
 	fmt.Fprintln(buf, "    val runtimeSpecs: List<GSXCapabilitySpec> = specs.map { spec ->")
 	fmt.Fprintln(buf, "        GSXCapabilitySpec(name = spec.name, targets = spec.targets, required = spec.required)")
 	fmt.Fprintln(buf, "    }")
+	fmt.Fprintln(buf)
+	fmt.Fprintln(buf, "    suspend fun negotiate(")
+	fmt.Fprintln(buf, "        negotiator: GSXCapabilityNegotiator,")
+	fmt.Fprintln(buf, "        target: String = \"android\",")
+	fmt.Fprintln(buf, "        path: String = \"/api/capabilities\",")
+	fmt.Fprintln(buf, "    ): GSXCapabilityReport = negotiator.negotiate(required = runtimeSpecs, target = target, path = path)")
 	fmt.Fprintln(buf, "}")
 }
 

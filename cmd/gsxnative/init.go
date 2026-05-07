@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -174,18 +176,20 @@ func scaffoldProject(opts initOptions) error {
 	}
 
 	files := map[string]string{
-		filepath.Join(opts.dir, "README.md"):                    initReadme(opts.name),
-		filepath.Join(opts.dir, "gosxnative.json"):              initConfig(projectCfg),
-		filepath.Join(iosDir, "project.yml"):                    initXcodeGenProject(opts, iosDir),
-		filepath.Join(iosDir, opts.name, opts.name+"App.swift"): initSwiftApp(opts.name),
+		filepath.Join(opts.dir, "README.md"):                            initReadme(opts.name),
+		filepath.Join(opts.dir, "gosxnative.json"):                      initConfig(projectCfg),
+		filepath.Join(iosDir, "project.yml"):                            initXcodeGenProject(opts, iosDir),
+		filepath.Join(iosDir, opts.name, opts.name+"App.swift"):         initSwiftApp(opts.name),
+		filepath.Join(iosDir, opts.name, "Native/BridgeServices.swift"): initSwiftBridgeServices(sourceProjectCfg),
 		iosOutput:        swiftSource,
 		iosSupportOutput: string(swiftDeclarations),
-		filepath.Join(androidDir, "settings.gradle.kts"):                                              initAndroidSettings(opts, androidDir),
-		filepath.Join(androidDir, "build.gradle.kts"):                                                 initAndroidRootBuild(),
-		filepath.Join(androidDir, "app/build.gradle.kts"):                                             initAndroidAppBuild(opts),
-		filepath.Join(androidDir, "app/src/main/AndroidManifest.xml"):                                 initAndroidManifest(opts.module),
-		filepath.Join(androidDir, "app/src/main/res/values/styles.xml"):                               initAndroidStyles(opts.name),
-		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "MainActivity.kt"): initAndroidMainActivity(opts),
+		filepath.Join(androidDir, "settings.gradle.kts"):                                                initAndroidSettings(opts, androidDir),
+		filepath.Join(androidDir, "build.gradle.kts"):                                                   initAndroidRootBuild(),
+		filepath.Join(androidDir, "app/build.gradle.kts"):                                               initAndroidAppBuild(opts),
+		filepath.Join(androidDir, "app/src/main/AndroidManifest.xml"):                                   initAndroidManifest(opts.module),
+		filepath.Join(androidDir, "app/src/main/res/values/styles.xml"):                                 initAndroidStyles(opts.name),
+		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "MainActivity.kt"):   initAndroidMainActivity(opts),
+		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "BridgeServices.kt"): initAndroidBridgeServices(opts.module, sourceProjectCfg),
 		androidOutput:        kotlinSource,
 		androidSupportOutput: string(kotlinDeclarations),
 	}
@@ -385,6 +389,41 @@ struct %sApp: SwiftUI.App {
 `, appName, splitWords(appName))
 }
 
+func initSwiftBridgeServices(cfg *projectConfig) string {
+	var buf bytes.Buffer
+	fmt.Fprintln(&buf, "import Foundation")
+	fmt.Fprintln(&buf, "import GSXNativeKit")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "enum NativeCapabilities {")
+	fmt.Fprintf(&buf, "    static let available: Set<String> = %s\n", swiftStringSet(nativeCapabilityNames(cfg, target.IOS)))
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "    static func checkGenerated(target: String = \"ios\") -> GSXCapabilityReport {")
+	fmt.Fprintln(&buf, "        GSXCapabilityChecker.check(required: GSXCapabilities.runtimeSpecs, available: available, target: target)")
+	fmt.Fprintln(&buf, "    }")
+	fmt.Fprintln(&buf, "}")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "struct NativeCapabilityProvider: GSXCapabilityProvider {")
+	fmt.Fprintln(&buf, "    let capabilities: Set<String> = NativeCapabilities.available")
+	fmt.Fprintln(&buf, "}")
+	for _, service := range bridgeServices(cfg.Bridges) {
+		fmt.Fprintln(&buf)
+		fmt.Fprintf(&buf, "final class %sBridge: GSXBridgeService {\n", pascalIdentifier(service, "Bridge"))
+		fmt.Fprintf(&buf, "    let service = %s\n", strconv.Quote(service))
+		for _, bridge := range bridgesForService(cfg.Bridges, service) {
+			resultType := "GSXResponse"
+			if len(bridge.Output) > 0 {
+				resultType = swiftBridgeModelName(bridge, "Response")
+			}
+			fmt.Fprintln(&buf)
+			fmt.Fprintf(&buf, "    func %s(%s) async throws -> %s {\n", swiftIdentifier(bridge.Method), swiftParamList(bridge.Input), resultType)
+			fmt.Fprintf(&buf, "        fatalError(%s)\n", strconv.Quote("Implement "+bridgeName(bridge)+" in BridgeServices.swift"))
+			fmt.Fprintln(&buf, "    }")
+		}
+		fmt.Fprintln(&buf, "}")
+	}
+	return buf.String()
+}
+
 func initAndroidSettings(opts initOptions, androidDir string) string {
 	runtimePath := relSlash(androidDir, filepath.Join(opts.runtimeRoot, "runtime/android"))
 	return fmt.Sprintf(`pluginManagement {
@@ -488,6 +527,46 @@ func initAndroidStyles(appName string) string {
 `, splitWords(appName))
 }
 
+func initAndroidBridgeServices(module string, cfg *projectConfig) string {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "package %s\n", module)
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXBridgeService")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityChecker")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityProvider")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXCapabilityReport")
+	fmt.Fprintln(&buf, "import com.gosx.nativekit.GSXResponse")
+	fmt.Fprintln(&buf, "import generated.*")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "object NativeCapabilities {")
+	fmt.Fprintf(&buf, "    val available: Set<String> = %s\n", kotlinStringSet(nativeCapabilityNames(cfg, target.Android)))
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "    fun checkGenerated(target: String = \"android\"): GSXCapabilityReport =")
+	fmt.Fprintln(&buf, "        GSXCapabilityChecker.check(required = GSXCapabilities.runtimeSpecs, available = available, target = target)")
+	fmt.Fprintln(&buf, "}")
+	fmt.Fprintln(&buf)
+	fmt.Fprintln(&buf, "class NativeCapabilityProvider : GSXCapabilityProvider {")
+	fmt.Fprintln(&buf, "    override val capabilities: Set<String> = NativeCapabilities.available")
+	fmt.Fprintln(&buf, "}")
+	for _, service := range bridgeServices(cfg.Bridges) {
+		fmt.Fprintln(&buf)
+		fmt.Fprintf(&buf, "class %sBridge : GSXBridgeService {\n", pascalIdentifier(service, "Bridge"))
+		fmt.Fprintf(&buf, "    override val service: String = %s\n", strconv.Quote(service))
+		for _, bridge := range bridgesForService(cfg.Bridges, service) {
+			resultType := "GSXResponse"
+			if len(bridge.Output) > 0 {
+				resultType = kotlinBridgeModelName(bridge, "Response")
+			}
+			fmt.Fprintln(&buf)
+			fmt.Fprintf(&buf, "    suspend fun %s(%s): %s {\n", kotlinIdentifier(bridge.Method), kotlinParamList(bridge.Input), resultType)
+			fmt.Fprintf(&buf, "        error(%s)\n", strconv.Quote("Implement "+bridgeName(bridge)+" in BridgeServices.kt"))
+			fmt.Fprintln(&buf, "    }")
+		}
+		fmt.Fprintln(&buf, "}")
+	}
+	return buf.String()
+}
+
 func initAndroidMainActivity(opts initOptions) string {
 	return fmt.Sprintf(`package %s
 
@@ -529,6 +608,65 @@ class MainActivity : ComponentActivity() {
     }
 }
 `, opts.module, splitWords(opts.name))
+}
+
+func nativeCapabilityNames(cfg *projectConfig, tgt target.Target) []string {
+	if cfg == nil {
+		return nil
+	}
+	targetName := string(tgt)
+	names := make([]string, 0, len(cfg.Capabilities))
+	for _, capability := range cfg.Capabilities {
+		for _, declared := range capabilityTargets(capability) {
+			if declared == targetName {
+				names = append(names, capability.Name)
+				break
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func bridgeServices(bridges []bridgeDeclaration) []string {
+	seen := make(map[string]bool, len(bridges))
+	services := make([]string, 0, len(bridges))
+	for _, bridge := range bridges {
+		if !seen[bridge.Service] {
+			services = append(services, bridge.Service)
+			seen[bridge.Service] = true
+		}
+	}
+	sort.Strings(services)
+	return services
+}
+
+func bridgesForService(bridges []bridgeDeclaration, service string) []bridgeDeclaration {
+	filtered := make([]bridgeDeclaration, 0, len(bridges))
+	for _, bridge := range bridges {
+		if bridge.Service == service {
+			filtered = append(filtered, bridge)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Method < filtered[j].Method
+	})
+	return filtered
+}
+
+func swiftStringSet(values []string) string {
+	return swiftStringArray(values)
+}
+
+func kotlinStringSet(values []string) string {
+	if len(values) == 0 {
+		return "emptySet()"
+	}
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, strconv.Quote(value))
+	}
+	return "setOf(" + strings.Join(quoted, ", ") + ")"
 }
 
 func validateAndroidModule(module string) error {

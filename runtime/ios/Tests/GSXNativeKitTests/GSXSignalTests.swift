@@ -191,6 +191,60 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(report.missing, ["secureStorage"])
     }
 
+    func testCapabilityCheckerUsesProviders() {
+        let report = GSXCapabilityChecker.check(
+            required: [
+                GSXCapabilitySpec(name: "network", targets: ["ios"], required: true),
+                GSXCapabilitySpec(name: "secureStorage", targets: ["ios"], required: true),
+            ],
+            providers: [
+                GSXStaticCapabilityProvider(["network"]) as any GSXCapabilityProvider,
+                GSXStaticCapabilityProvider(["secureStorage"]) as any GSXCapabilityProvider,
+            ],
+            target: "ios"
+        )
+
+        XCTAssertTrue(report.isSatisfied)
+        XCTAssertEqual(report.missing, [])
+    }
+
+    func testCapabilityNegotiatorLoadsServerEnvelope() async throws {
+        let body = Data(#"{"capabilities":["network","secureStorage"]}"#.utf8)
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: body))
+        let negotiator = GSXCapabilityNegotiator(dataClient: GSXDataClient(transport: transport))
+
+        let report = try await negotiator.negotiate(
+            required: [
+                GSXCapabilitySpec(name: "network", targets: ["ios"], required: true),
+                GSXCapabilitySpec(name: "secureStorage", targets: ["ios"], required: true),
+            ],
+            target: "ios"
+        )
+
+        XCTAssertTrue(report.isSatisfied)
+        XCTAssertEqual(transport.requests, [GSXRequest(path: "/api/capabilities")])
+    }
+
+    func testCapabilityNegotiatorThrowsForMissingCapabilities() async {
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: Data(#"["network"]"#.utf8)))
+        let negotiator = GSXCapabilityNegotiator(dataClient: GSXDataClient(transport: transport))
+
+        do {
+            _ = try await negotiator.negotiate(
+                required: [
+                    GSXCapabilitySpec(name: "network", targets: ["ios"], required: true),
+                    GSXCapabilitySpec(name: "secureStorage", targets: ["ios"], required: true),
+                ],
+                target: "ios"
+            )
+            XCTFail("expected missing capability error")
+        } catch GSXCapabilityNegotiationError.missing(let missing) {
+            XCTAssertEqual(missing, ["secureStorage"])
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
     func testBridgeClientUsesDataClientPolicyPath() async throws {
         let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("bridge".utf8)))
         let client = GSXBridgeClient(dataClient: GSXDataClient(transport: transport))
@@ -203,10 +257,23 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(response.body, Data("bridge".utf8))
         XCTAssertEqual(transport.requests, [GSXRequest(method: "POST", path: "/api/bridge/Vault.echo")])
     }
+
+    func testBridgeRegistryStoresNamedServices() {
+        let registry = GSXBridgeRegistry(services: [TestBridgeService(service: "Vault") as any GSXBridgeService])
+
+        registry.register(TestBridgeService(service: "Worker"))
+
+        XCTAssertNotNil(registry.service(named: "Vault"))
+        XCTAssertEqual(registry.registeredServices, ["Vault", "Worker"])
+    }
 }
 
 private struct GreetingPayload: Codable, Equatable {
     let message: String
+}
+
+private struct TestBridgeService: GSXBridgeService {
+    let service: String
 }
 
 private final class StaticTransport: GSXTransport {
