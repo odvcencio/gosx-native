@@ -362,6 +362,8 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        GSX_SERVER_URL: "http://127.0.0.1:3000"
+        INFOPLIST_KEY_GSXServerURL: "$(GSX_SERVER_URL)"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -521,6 +523,7 @@ val gsxSigningStoreFile = providers.gradleProperty("gsxSigningStoreFile")
 val gsxSigningStorePassword = providers.gradleProperty("gsxSigningStorePassword")
 val gsxSigningKeyAlias = providers.gradleProperty("gsxSigningKeyAlias")
 val gsxSigningKeyPassword = providers.gradleProperty("gsxSigningKeyPassword")
+val gsxServerURL = providers.gradleProperty("gsxServerURL").orElse("http://10.0.2.2:3000")
 val hasGSXReleaseSigning =
     gsxSigningStoreFile.isPresent &&
         gsxSigningStorePassword.isPresent &&
@@ -537,10 +540,12 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "GSX_SERVER_URL", "\"${gsxServerURL.get()}\"")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     signingConfigs {

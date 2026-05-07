@@ -173,6 +173,47 @@ func TestBuildAndroidReleaseEnvFlavorWritesManifest(t *testing.T) {
 	}
 }
 
+func TestBuildAndroidForwardsServerURL(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.kt")
+	manifestPath := filepath.Join(t.TempDir(), "gsxnative-artifacts.json")
+	err = runBuild([]string{
+		"android",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--server-url", "http://127.0.0.1:3030",
+		"--artifact-manifest", manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected one Gradle command, got %#v", fake.commands)
+	}
+	joinedArgs := strings.Join(fake.commands[0].args, " ")
+	if !strings.Contains(joinedArgs, "-PgsxServerURL=http://127.0.0.1:3030") {
+		t.Fatalf("expected server URL Gradle property, got %q", joinedArgs)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read artifact manifest: %v", err)
+	}
+	var manifest buildArtifactManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse artifact manifest: %v", err)
+	}
+	target := manifest.Targets[0]
+	if target.ServerURL != "http://127.0.0.1:3030" || !containsString(target.BuildProperties, "gsxServerURL=http://127.0.0.1:3030") {
+		t.Fatalf("expected server URL in manifest: %#v", target)
+	}
+}
+
 func TestBuildAndroidReleaseSigningConfigWritesRedactedManifest(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()
@@ -362,6 +403,41 @@ func TestBuildIOSForwardsEnvironmentBuildSetting(t *testing.T) {
 	joinedArgs := strings.Join(fake.commands[1].args, " ")
 	if !strings.Contains(joinedArgs, "GSX_ENVIRONMENT=staging") {
 		t.Fatalf("expected iOS environment build setting, got %q", joinedArgs)
+	}
+}
+
+func TestBuildIOSForwardsServerURLBuildSetting(t *testing.T) {
+	fake := useFakeBuildRunner(t)
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	output := filepath.Join(t.TempDir(), "Counter.swift")
+	err = runBuild([]string{
+		"ios",
+		"--source", filepath.Join(root, "testdata/corpus/go/counter.gsx"),
+		"--output", output,
+		"--project", project,
+		"--scheme", "CounterDemo",
+		"--server-url", "https://dev.example.test",
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(fake.commands) != 2 {
+		t.Fatalf("expected xcodegen and xcodebuild commands, got %#v", fake.commands)
+	}
+	joinedArgs := strings.Join(fake.commands[1].args, " ")
+	if !strings.Contains(joinedArgs, "GSX_SERVER_URL=https://dev.example.test") {
+		t.Fatalf("expected iOS server URL build setting, got %q", joinedArgs)
+	}
+}
+
+func TestBuildRejectsInvalidServerURL(t *testing.T) {
+	err := runBuild([]string{"android", "--server-url", "localhost:3000"})
+	if err == nil || !strings.Contains(err.Error(), "server URL") {
+		t.Fatalf("expected server URL validation error, got %v", err)
 	}
 }
 

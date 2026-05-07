@@ -7,6 +7,7 @@ val gsxSigningStoreFile = providers.gradleProperty("gsxSigningStoreFile")
 val gsxSigningStorePassword = providers.gradleProperty("gsxSigningStorePassword")
 val gsxSigningKeyAlias = providers.gradleProperty("gsxSigningKeyAlias")
 val gsxSigningKeyPassword = providers.gradleProperty("gsxSigningKeyPassword")
+val gsxServerURL = providers.gradleProperty("gsxServerURL").orElse("http://10.0.2.2:3000")
 val hasGSXReleaseSigning =
     gsxSigningStoreFile.isPresent &&
         gsxSigningStorePassword.isPresent &&
@@ -24,10 +25,12 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "GSX_SERVER_URL", "\"${gsxServerURL.get()}\"")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     signingConfigs {

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,7 @@ type buildOptions struct {
 	artifactManifest   string
 	artifactPublishDir string
 	signingConfig      string
+	serverURL          string
 	environment        string
 	androidFlavor      string
 	schemeSet          bool
@@ -96,6 +98,7 @@ type projectConfig struct {
 	ArtifactManifest   string                  `json:"artifact_manifest,omitempty"`
 	ArtifactPublishDir string                  `json:"artifact_publish_dir,omitempty"`
 	SigningConfig      string                  `json:"signing_config,omitempty"`
+	ServerURL          string                  `json:"server_url,omitempty"`
 	Routes             []routeDeclaration      `json:"routes,omitempty"`
 	DataLoaders        []endpointDeclaration   `json:"data_loaders,omitempty"`
 	Actions            []endpointDeclaration   `json:"actions,omitempty"`
@@ -285,6 +288,7 @@ func parseBuildOptions(targetName string, args []string) (buildOptions, error) {
 	fs.StringVar(&opts.artifactManifest, "artifact-manifest", "", "write a JSON manifest describing generated and native build artifacts")
 	fs.StringVar(&opts.artifactPublishDir, "publish-dir", "", "copy expected native build artifacts into this directory after a successful build")
 	fs.StringVar(&opts.signingConfig, "signing-config", "", "release signing config JSON; defaults to .gsxnative/signing.json when present")
+	fs.StringVar(&opts.serverURL, "server-url", "", "dev/server base URL forwarded to native build metadata")
 	fs.StringVar(&opts.environment, "env", "", "build environment name forwarded to native build tools")
 	fs.StringVar(&opts.androidFlavor, "flavor", "", "Android product flavor for default app build tasks")
 	fs.StringVar(&opts.androidFlavor, "android-flavor", "", "Android product flavor for default app build tasks")
@@ -350,6 +354,9 @@ func applyBuildProjectConfig(opts *buildOptions, targetName string) error {
 	}
 	if opts.signingConfig == "" && cfg.SigningConfig != "" {
 		opts.signingConfig = resolveConfigPath(baseDir, cfg.SigningConfig)
+	}
+	if opts.serverURL == "" && cfg.ServerURL != "" {
+		opts.serverURL = cfg.ServerURL
 	}
 	if targetName == "ios" || targetName == "all" {
 		applyIOSTargetConfig(opts, cfg.IOS, baseDir)
@@ -579,7 +586,25 @@ func validateBuildVariantOptions(opts buildOptions) error {
 	if opts.androidFlavor != "" && !identifierPattern.MatchString(opts.androidFlavor) {
 		return fmt.Errorf("android flavor %q has invalid name", opts.androidFlavor)
 	}
+	if opts.serverURL != "" {
+		if err := validateServerURL(opts.serverURL); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateServerURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("server URL %q must be an absolute http(s) URL", raw)
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+		return nil
+	default:
+		return fmt.Errorf("server URL %q must use http or https", raw)
+	}
 }
 
 func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts buildOptions) (nativeBuildResult, error) {
@@ -657,6 +682,7 @@ type nativeBuild struct {
 	gradleTasks       []string
 	gradleProperties  []string
 	environment       string
+	serverURL         string
 	androidFlavor     string
 	projectConfig     *projectConfig
 	signing           *releaseSigningConfig
@@ -679,6 +705,7 @@ type nativeBuildResult struct {
 	SupportOutput      string              `json:"support_output,omitempty"`
 	Release            bool                `json:"release"`
 	Environment        string              `json:"environment,omitempty"`
+	ServerURL          string              `json:"server_url,omitempty"`
 	Flavor             string              `json:"flavor,omitempty"`
 	CodegenOnly        bool                `json:"codegen_only,omitempty"`
 	BuildSystem        string              `json:"build_system,omitempty"`
@@ -733,6 +760,7 @@ func nativeBuildConfig(root string, tgt target.Target, opts buildOptions) (nativ
 		gradleTasks:       append([]string(nil), opts.gradleTasks...),
 		gradleProperties:  append([]string(nil), opts.gradleProperties...),
 		environment:       opts.environment,
+		serverURL:         opts.serverURL,
 		projectConfig:     opts.projectConfig,
 		signing:           opts.signing,
 		signingConfigPath: opts.signingConfigPath,
@@ -790,6 +818,7 @@ func nativeBuildResultFor(tgt target.Target, cfg nativeBuild) nativeBuildResult 
 		SupportOutput:   cfg.supportOutput,
 		Release:         cfg.release,
 		Environment:     cfg.environment,
+		ServerURL:       cfg.serverURL,
 		Flavor:          cfg.androidFlavor,
 		CodegenOnly:     cfg.codegenOnly,
 	}
@@ -978,6 +1007,9 @@ func androidBuildPropertiesForManifest(cfg nativeBuild) []string {
 	if cfg.environment != "" && !hasGradleProperty(properties, "gsxEnvironment") {
 		properties = append(properties, "gsxEnvironment="+cfg.environment)
 	}
+	if cfg.serverURL != "" && !hasGradleProperty(properties, "gsxServerURL") {
+		properties = append(properties, "gsxServerURL="+cfg.serverURL)
+	}
 	properties = appendAndroidSigningProperties(cfg, properties)
 	return redactGradleProperties(properties)
 }
@@ -986,6 +1018,9 @@ func androidBuildPropertiesForBuild(cfg nativeBuild) ([]string, error) {
 	properties := append([]string(nil), cfg.gradleProperties...)
 	if cfg.environment != "" && !hasGradleProperty(properties, "gsxEnvironment") {
 		properties = append(properties, "gsxEnvironment="+cfg.environment)
+	}
+	if cfg.serverURL != "" && !hasGradleProperty(properties, "gsxServerURL") {
+		properties = append(properties, "gsxServerURL="+cfg.serverURL)
 	}
 	var err error
 	properties, err = appendAndroidSigningPropertiesForBuild(cfg, properties)
@@ -1199,6 +1234,9 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	}
 	if cfg.environment != "" {
 		args = append(args, "GSX_ENVIRONMENT="+cfg.environment)
+	}
+	if cfg.serverURL != "" {
+		args = append(args, "GSX_SERVER_URL="+cfg.serverURL)
 	}
 	args = append(args, iosSigningBuildSettings(cfg)...)
 	args = append(args, action)
