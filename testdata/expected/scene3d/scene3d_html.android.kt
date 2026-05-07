@@ -15,8 +15,7 @@ import com.gosx.nativekit.GSXScene3DNode
 import com.gosx.nativekit.GSXScene3DScene
 import com.gosx.nativekit.rememberGSXSignal
 
-data class HTMLDemoProps(
-)
+class HTMLDemoProps
 
 @GSXComponent
 @Composable

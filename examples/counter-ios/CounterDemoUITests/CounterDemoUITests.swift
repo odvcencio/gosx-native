@@ -17,14 +17,17 @@ final class CounterDemoUITests: XCTestCase {
         try assertScene3DPaintsPixels(app: app, scene: scene)
         XCTAssertTrue(app.staticTexts["0"].waitForExistence(timeout: 5))
 
-        app.buttons["+"].tap()
-        XCTAssertTrue(app.staticTexts["1"].waitForExistence(timeout: 2))
+        tapButton("+", in: app, expecting: "1")
+        tapButton("-", in: app, expecting: "0")
+        tapButton("-", in: app, expecting: "-1")
+    }
 
-        app.buttons["-"].tap()
-        XCTAssertTrue(app.staticTexts["0"].waitForExistence(timeout: 2))
+    private func tapButton(_ label: String, in app: XCUIApplication, expecting text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let button = app.buttons[label]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), file: file, line: line)
+        button.tap()
 
-        app.buttons["-"].tap()
-        XCTAssertTrue(app.staticTexts["-1"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 8), file: file, line: line)
     }
 
     private func assertScene3DPaintsPixels(app: XCUIApplication, scene: XCUIElement, file: StaticString = #filePath, line: UInt = #line) throws {

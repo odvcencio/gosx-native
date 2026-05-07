@@ -402,7 +402,9 @@ func viewHasHandlerEvent(v nir.View, event string) bool {
 }
 
 func emitComponent(w io.Writer, c *nir.Component) error {
-	if c.Props != nil {
+	if c.Props == nil || len(c.Props.Fields) == 0 {
+		fmt.Fprintf(w, "class %sProps\n", c.Name)
+	} else {
 		fmt.Fprintf(w, "data class %sProps(\n", c.Name)
 		for i, f := range c.Props.Fields {
 			sep := ","
@@ -412,8 +414,8 @@ func emitComponent(w io.Writer, c *nir.Component) error {
 			fmt.Fprintf(w, "    val %s: %s%s\n", f.Name, kotlinType(f.Type), sep)
 		}
 		fmt.Fprintln(w, ")")
-		fmt.Fprintln(w)
 	}
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "@GSXComponent")
 	fmt.Fprintln(w, "@Composable")
 	fmt.Fprintf(w, "fun %s(props: %sProps) {\n", c.Name, c.Name)
