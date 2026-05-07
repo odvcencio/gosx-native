@@ -132,6 +132,32 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 2)
     }
 
+    func testDataClientRecordsTelemetrySafeDiagnostics() async throws {
+        let sink = GSXMemoryDiagnosticsSink()
+        let diagnostics = GSXDiagnostics(sink: sink)
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: Data("ok".utf8)))
+        let client = GSXDataClient(transport: transport, diagnostics: diagnostics)
+
+        _ = try await client.submit(
+            GSXRequest(
+                method: "POST",
+                path: "/secret?token=private",
+                headers: ["Authorization": "Bearer private-token"],
+                body: Data("sensitive".utf8)
+            ),
+            policy: GSXRequestPolicy(name: "submitSecret", auth: .required)
+        )
+
+        let event = try XCTUnwrap(sink.events().last)
+        XCTAssertEqual(event.category, "data")
+        XCTAssertEqual(event.name, "success")
+        XCTAssertEqual(event.attributes["resource"], "submitSecret")
+        XCTAssertEqual(event.attributes["method"], "POST")
+        XCTAssertEqual(event.attributes["auth"], "required")
+        XCTAssertEqual(event.attributes["body_bytes"], "9")
+        XCTAssertFalse(event.attributes.values.contains { $0.contains("private") || $0.contains("sensitive") })
+    }
+
     func testDataClientDecodesValidationFailures() async {
         let body = Data(#"{"message":"Invalid","field_errors":{"email":"Required"},"values":{"email":""}}"#.utf8)
         let transport = StaticTransport(response: GSXResponse(status: 422, body: body))

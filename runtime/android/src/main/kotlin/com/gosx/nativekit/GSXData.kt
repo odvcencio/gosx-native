@@ -258,6 +258,7 @@ class GSXHTTPTransport(
 
 class GSXDataClient(
     private val transport: GSXTransport,
+    private val diagnostics: GSXDiagnosticsRecorder = GSXDiagnostics,
 ) {
     private val cache = ConcurrentHashMap<String, CachedResponse>()
 
@@ -324,20 +325,86 @@ class GSXDataClient(
             try {
                 val response = transport.send(request)
                 if (shouldRetry(response.status) && attempt < attempts) {
+                    recordDataEvent(
+                        name = "retry",
+                        level = GSXDiagnosticLevel.Warning,
+                        message = "Retrying transient GSX response",
+                        request = request,
+                        policy = policy,
+                        attempt = attempt,
+                        extra = mapOf("status" to response.status.toString()),
+                    )
                     waitBeforeRetry(policy, attempt)
                     continue
                 }
                 validate(response)
+                recordDataEvent(
+                    name = "success",
+                    level = GSXDiagnosticLevel.Debug,
+                    message = "GSX request completed",
+                    request = request,
+                    policy = policy,
+                    attempt = attempt,
+                    extra = mapOf("status" to response.status.toString()),
+                )
                 return response
             } catch (error: Throwable) {
                 lastError = error
                 if (attempt >= attempts) {
+                    recordDataEvent(
+                        name = "failure",
+                        level = GSXDiagnosticLevel.Error,
+                        message = "GSX request failed",
+                        request = request,
+                        policy = policy,
+                        attempt = attempt,
+                        extra = mapOf("error" to error::class.java.simpleName),
+                    )
                     throw error
                 }
+                recordDataEvent(
+                    name = "retry",
+                    level = GSXDiagnosticLevel.Warning,
+                    message = "Retrying failed GSX request",
+                    request = request,
+                    policy = policy,
+                    attempt = attempt,
+                    extra = mapOf("error" to error::class.java.simpleName),
+                )
                 waitBeforeRetry(policy, attempt)
             }
         }
         throw lastError ?: GSXTransportException("GSX request failed without a response")
+    }
+
+    private fun recordDataEvent(
+        name: String,
+        level: GSXDiagnosticLevel,
+        message: String,
+        request: GSXRequest,
+        policy: GSXRequestPolicy,
+        attempt: Int,
+        extra: Map<String, String> = emptyMap(),
+    ) {
+        val attributes = linkedMapOf(
+            "method" to request.method.uppercase(),
+            "resource" to (policy.name ?: "unnamed"),
+            "attempt" to attempt.toString(),
+            "max_attempts" to maxOf(1, policy.retryAttempts ?: 1).toString(),
+            "auth" to policy.auth.name,
+            "has_body" to (request.body != null).toString(),
+            "body_bytes" to (request.body?.size ?: 0).toString(),
+        )
+        attributes.putAll(extra)
+        diagnostics.record(
+            GSXDiagnosticEvent(
+                category = "data",
+                name = name,
+                level = level,
+                message = message,
+                attributes = attributes,
+            ),
+        )
     }
 
     private suspend fun waitBeforeRetry(policy: GSXRequestPolicy, attempt: Int) {

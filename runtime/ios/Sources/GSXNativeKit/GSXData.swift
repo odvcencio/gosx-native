@@ -306,10 +306,12 @@ public final class GSXHTTPTransport: GSXTransport {
 
 public final class GSXDataClient {
     private let transport: any GSXTransport
+    private let diagnostics: any GSXDiagnosticsRecorder
     private var cache: [String: GSXCachedResponse] = [:]
 
-    public init(transport: any GSXTransport) {
+    public init(transport: any GSXTransport, diagnostics: any GSXDiagnosticsRecorder = GSXDiagnostics.shared) {
         self.transport = transport
+        self.diagnostics = diagnostics
     }
 
     public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:]) {
@@ -380,20 +382,86 @@ public final class GSXDataClient {
             do {
                 let response = try await transport.send(request)
                 if shouldRetry(response.status), attempt < attempts {
+                    recordDataEvent(
+                        name: "retry",
+                        level: .warning,
+                        message: "Retrying transient GSX response",
+                        request: request,
+                        policy: policy,
+                        attempt: attempt,
+                        attributes: ["status": String(response.status)]
+                    )
                     try await waitBeforeRetry(policy: policy, attempt: attempt)
                     continue
                 }
                 try validate(response)
+                recordDataEvent(
+                    name: "success",
+                    level: .debug,
+                    message: "GSX request completed",
+                    request: request,
+                    policy: policy,
+                    attempt: attempt,
+                    attributes: ["status": String(response.status)]
+                )
                 return response
             } catch {
                 lastError = error
                 if attempt >= attempts {
+                    recordDataEvent(
+                        name: "failure",
+                        level: .error,
+                        message: "GSX request failed",
+                        request: request,
+                        policy: policy,
+                        attempt: attempt,
+                        attributes: ["error": String(describing: type(of: error))]
+                    )
                     throw error
                 }
+                recordDataEvent(
+                    name: "retry",
+                    level: .warning,
+                    message: "Retrying failed GSX request",
+                    request: request,
+                    policy: policy,
+                    attempt: attempt,
+                    attributes: ["error": String(describing: type(of: error))]
+                )
                 try await waitBeforeRetry(policy: policy, attempt: attempt)
             }
         }
         throw lastError ?? GSXDataError.invalidResponse
+    }
+
+    private func recordDataEvent(
+        name: String,
+        level: GSXDiagnosticLevel,
+        message: String,
+        request: GSXRequest,
+        policy: GSXRequestPolicy,
+        attempt: Int,
+        attributes extra: [String: String] = [:]
+    ) {
+        var attributes: [String: String] = [
+            "method": request.method.uppercased(),
+            "resource": policy.name ?? "unnamed",
+            "attempt": String(attempt),
+            "max_attempts": String(max(1, policy.retryAttempts ?? 1)),
+            "auth": policy.auth.rawValue,
+            "has_body": request.body == nil ? "false" : "true",
+            "body_bytes": String(request.body?.count ?? 0),
+        ]
+        for (name, value) in extra {
+            attributes[name] = value
+        }
+        diagnostics.record(GSXDiagnosticEvent(
+            category: "data",
+            name: name,
+            level: level,
+            message: message,
+            attributes: attributes
+        ))
     }
 
     private func waitBeforeRetry(policy: GSXRequestPolicy, attempt: Int) async throws {
