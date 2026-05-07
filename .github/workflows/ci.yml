@@ -41,6 +41,9 @@ jobs:
           "$RUNNER_TEMP/gsxnative" check android "$appdir/src/app.gsx"
           (cd "$appdir" && "$RUNNER_TEMP/gsxnative" dev all --once --reload-stamp .gsxnative/reload.json --reload-command './scripts/reload-native.sh')
           test -s "$appdir/.gsxnative/reload.json"
+          (cd "$appdir" && "$RUNNER_TEMP/gsxnative" build android --release --codegen-only --artifact-manifest build/gsxnative-artifacts.json)
+          (cd "$appdir" && "$RUNNER_TEMP/gsxnative" store-plan --artifact-manifest build/gsxnative-artifacts.json --output build/store-plan.json)
+          test -s "$appdir/build/store-plan.json"
       - name: Vet
         working-directory: gosx-native
         run: go vet ./...
