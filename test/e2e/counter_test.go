@@ -42,7 +42,7 @@ func TestCounterEndToEnd(t *testing.T) {
 	test := exec.Command("xcodebuild",
 		"-project", filepath.Join(repoRoot, "examples/counter-ios/CounterDemo.xcodeproj"),
 		"-scheme", "CounterDemo",
-		"-destination", "platform=iOS Simulator,name="+simName(),
+		"-destination", simDestination(),
 		"-derivedDataPath", t.TempDir(),
 		"test",
 	)
@@ -51,6 +51,13 @@ func TestCounterEndToEnd(t *testing.T) {
 	if err := test.Run(); err != nil {
 		t.Fatalf("xcodebuild test: %v", err)
 	}
+}
+
+func simDestination() string {
+	if d := os.Getenv("IOS_SIMULATOR_DESTINATION"); d != "" {
+		return d
+	}
+	return "platform=iOS Simulator,name=" + simName()
 }
 
 func simName() string {

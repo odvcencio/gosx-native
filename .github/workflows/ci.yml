@@ -55,7 +55,7 @@ jobs:
         run: make scene-conform
 
   build-smoke-macos:
-    runs-on: macos-latest
+    runs-on: macos-26
     needs: unit-linux
     steps:
       - uses: actions/checkout@v6
@@ -77,6 +77,36 @@ jobs:
         run: |
           echo "$(go env GOROOT)/bin" >> "$GITHUB_PATH"
           echo "GOTOOLCHAIN=auto" >> "$GITHUB_ENV"
+      - name: Show Apple toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcodebuild -showsdks
+          swift --version
+      - name: Select iOS simulator
+        run: |
+          set -euo pipefail
+          simulator="$(
+            python3 <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          devices = json.loads(
+              subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          )
+          for runtime_devices in devices.get("devices", {}).values():
+              for device in runtime_devices:
+                  name = device.get("name", "")
+                  if device.get("isAvailable") and name.startswith("iPhone"):
+                      print(name)
+                      sys.exit(0)
+          sys.exit("no available iPhone simulator found")
+          PY
+          )"
+          echo "IOS_SIMULATOR_NAME=$simulator" >> "$GITHUB_ENV"
+          echo "IOS_SIMULATOR_DESTINATION=platform=iOS Simulator,name=$simulator,OS=latest" >> "$GITHUB_ENV"
+          echo "Using iOS simulator: $simulator"
       - name: Install xcodegen
         run: brew install xcodegen
       - name: CLI iOS build
