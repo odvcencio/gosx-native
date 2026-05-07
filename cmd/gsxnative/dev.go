@@ -12,6 +12,7 @@ import (
 type devOptions struct {
 	target    string
 	once      bool
+	build     bool
 	interval  time.Duration
 	buildArgs []string
 }
@@ -79,6 +80,8 @@ func parseDevOptions(args []string) (devOptions, error) {
 		switch {
 		case arg == "--once":
 			opts.once = true
+		case arg == "--build":
+			opts.build = true
 		case arg == "--target":
 			i++
 			if i >= len(args) {
@@ -129,7 +132,7 @@ func isDevTarget(value string) bool {
 
 func runDevBuild(ctx context.Context, opts devOptions) error {
 	args := append([]string{opts.target}, opts.buildArgs...)
-	if !hasBuildFlag(args, "codegen-only") {
+	if !opts.build && !hasBuildFlag(args, "codegen-only") {
 		args = append(args, "--codegen-only")
 	}
 	return runBuildWithContext(ctx, args)
