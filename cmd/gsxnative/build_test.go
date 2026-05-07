@@ -115,6 +115,24 @@ func TestBuildIOSRegeneratesSourceAndRunsXcodeTools(t *testing.T) {
 	}
 }
 
+func TestIOSBuildDestinationDefaultsToGenericSimulator(t *testing.T) {
+	t.Setenv("IOS_SIMULATOR_DESTINATION", "")
+	t.Setenv("IOS_SIMULATOR_NAME", "")
+
+	if got := defaultSimulatorName(); got != "generic/platform=iOS Simulator" {
+		t.Fatalf("unexpected default simulator destination: %q", got)
+	}
+	if got := iosBuildDestination(defaultSimulatorName()); got != "generic/platform=iOS Simulator" {
+		t.Fatalf("unexpected generic destination: %q", got)
+	}
+	if got := iosBuildDestination("iPhone 16"); got != "platform=iOS Simulator,name=iPhone 16" {
+		t.Fatalf("unexpected named simulator destination: %q", got)
+	}
+	if got := iosBuildDestination("platform=iOS Simulator,name=Any iOS Simulator Device"); got != "platform=iOS Simulator,name=Any iOS Simulator Device" {
+		t.Fatalf("unexpected explicit destination: %q", got)
+	}
+}
+
 func TestBuildCodegenOnlySkipsNativeTools(t *testing.T) {
 	fake := useFakeBuildRunner(t)
 	root, err := repoRoot()

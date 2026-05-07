@@ -35,10 +35,18 @@ build-scene3d-fixtures-ios:
 		go run ./cmd/gsxnative emit ios "testdata/corpus/go/$$fixture.gsx" > "examples/counter-ios/CounterDemo/Generated/SceneFixture_$$fixture.swift"; \
 	done; \
 	(cd examples/counter-ios && xcodegen generate); \
+	destination="$${IOS_SIMULATOR_DESTINATION:-}"; \
+	if [ -z "$$destination" ]; then \
+		if [ -n "$${IOS_SIMULATOR_NAME:-}" ]; then \
+			destination="platform=iOS Simulator,name=$$IOS_SIMULATOR_NAME"; \
+		else \
+			destination="generic/platform=iOS Simulator"; \
+		fi; \
+	fi; \
 	xcodebuild \
 		-project examples/counter-ios/CounterDemo.xcodeproj \
 		-scheme CounterDemo \
-		-destination "platform=iOS Simulator,name=$${IOS_SIMULATOR_NAME:-iPhone 16}" \
+		-destination "$$destination" \
 		-derivedDataPath "$$derived_data" \
 		build
 

@@ -476,7 +476,7 @@ func buildIOS(ctx context.Context, cfg nativeBuild) error {
 	args := []string{
 		"-project", filepath.Join(cfg.project, cfg.xcodeProject+".xcodeproj"),
 		"-scheme", cfg.scheme,
-		"-destination", "platform=iOS Simulator,name=" + cfg.simulator,
+		"-destination", iosBuildDestination(cfg.simulator),
 		"-derivedDataPath", derivedData,
 		action,
 	}
@@ -510,10 +510,24 @@ func repoRoot() (string, error) {
 }
 
 func defaultSimulatorName() string {
+	if destination := os.Getenv("IOS_SIMULATOR_DESTINATION"); destination != "" {
+		return destination
+	}
 	if name := os.Getenv("IOS_SIMULATOR_NAME"); name != "" {
 		return name
 	}
-	return "iPhone 16"
+	return "generic/platform=iOS Simulator"
+}
+
+func iosBuildDestination(simulator string) string {
+	simulator = strings.TrimSpace(simulator)
+	if simulator == "" {
+		return "generic/platform=iOS Simulator"
+	}
+	if strings.HasPrefix(simulator, "generic/") || strings.Contains(simulator, "platform=") {
+		return simulator
+	}
+	return "platform=iOS Simulator,name=" + simulator
 }
 
 func firstNonEmpty(values ...string) string {
