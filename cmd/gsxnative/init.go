@@ -179,6 +179,7 @@ func scaffoldProject(opts initOptions) error {
 		filepath.Join(opts.dir, "README.md"):                            initReadme(opts.name),
 		filepath.Join(opts.dir, "gosxnative.json"):                      initConfig(projectCfg),
 		filepath.Join(opts.dir, ".gsxnative/.gitignore"):                initSigningGitignore(),
+		filepath.Join(opts.dir, "scripts/reload-native.sh"):             initReloadNativeScript(),
 		filepath.Join(iosDir, "project.yml"):                            initXcodeGenProject(opts, iosDir),
 		filepath.Join(iosDir, opts.name, opts.name+"App.swift"):         initSwiftApp(opts.name),
 		filepath.Join(iosDir, opts.name, "Native/BridgeServices.swift"): initSwiftBridgeServices(sourceProjectCfg),
@@ -200,6 +201,9 @@ func scaffoldProject(opts initOptions) error {
 		if err := writeInitFile(path, data, opts.force); err != nil {
 			return err
 		}
+	}
+	if err := os.Chmod(filepath.Join(opts.dir, "scripts/reload-native.sh"), 0755); err != nil {
+		return err
 	}
 	fmt.Fprintf(os.Stdout, "created gosx-native app %s at %s\n", opts.name, opts.dir)
 	return nil
@@ -338,6 +342,24 @@ func initSigningGitignore() string {
 	return `signing.json
 *.keystore
 *.jks
+`
+}
+
+func initReloadNativeScript() string {
+	return `#!/usr/bin/env sh
+set -eu
+
+stamp="${1:-.gsxnative/reload.json}"
+if [ ! -s "$stamp" ]; then
+  printf 'missing gsx-native reload stamp: %s\n' "$stamp" >&2
+  exit 1
+fi
+
+if [ -n "${GSXNATIVE_RELOAD_CMD:-}" ]; then
+  sh -c "$GSXNATIVE_RELOAD_CMD"
+else
+  printf 'gsx-native reload stamp ready: %s\n' "$stamp"
+fi
 `
 }
 

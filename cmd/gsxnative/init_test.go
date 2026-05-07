@@ -28,6 +28,8 @@ func TestInitScaffoldsNativeProject(t *testing.T) {
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative dev android --launch --device emulator-5554")
 	assertFileContains(t, filepath.Join(dir, "README.md"), "gsxnative dev ios --launch --ios-bundle-id com.example.SampleApp")
 	assertFileContains(t, filepath.Join(dir, "README.md"), ".gsxnative/signing.json")
+	assertFileContains(t, filepath.Join(dir, "scripts/reload-native.sh"), "GSXNATIVE_RELOAD_CMD")
+	assertExecutable(t, filepath.Join(dir, "scripts/reload-native.sh"))
 	assertFileContains(t, filepath.Join(dir, ".gsxnative/.gitignore"), "signing.json")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "name: SampleApp")
 	assertFileContains(t, filepath.Join(dir, "ios/project.yml"), "INFOPLIST_KEY_GSXServerURL")
@@ -547,5 +549,16 @@ func assertFileContains(t *testing.T, path, want string) {
 	}
 	if !strings.Contains(string(data), want) {
 		t.Fatalf("expected %s to contain %q, got:\n%s", path, want, data)
+	}
+}
+
+func assertExecutable(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if info.Mode()&0111 == 0 {
+		t.Fatalf("expected %s to be executable, got mode %s", path, info.Mode())
 	}
 }
