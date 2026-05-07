@@ -410,6 +410,9 @@ func buildNativeTarget(ctx context.Context, root string, tgt target.Target, opts
 	if err := target.Validate(mod, tgt); err != nil {
 		return nativeBuildResult{}, err
 	}
+	if err := validateNativeImplementationsFile(cfg.source, tgt); err != nil {
+		return nativeBuildResult{}, err
+	}
 	projectConfig, err := effectiveProjectConfigForSource(opts.projectConfig, cfg.source)
 	if err != nil {
 		return nativeBuildResult{}, err

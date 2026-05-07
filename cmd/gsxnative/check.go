@@ -18,5 +18,8 @@ func runCheck(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateNativeImplementationsFile(args[1], tgt); err != nil {
+		return err
+	}
 	return target.Validate(mod, tgt)
 }
