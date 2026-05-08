@@ -6,7 +6,7 @@ public enum GSXSecureStorageError: Error, Equatable {
     case keychainStatus(OSStatus)
 }
 
-public actor GSXKeychainTokenStore: GSXRefreshableTokenStore {
+public actor GSXKeychainTokenStore: GSXMutableTokenStore, GSXRefreshableTokenStore {
     private let service: String
     private let account: String
     private let accessGroup: String?
@@ -43,7 +43,7 @@ public actor GSXKeychainTokenStore: GSXRefreshableTokenStore {
         return token
     }
 
-    public func setToken(_ token: String?) throws {
+    public func setToken(_ token: String?) async throws {
         guard let token else {
             try deleteToken()
             return
@@ -75,7 +75,7 @@ public actor GSXKeychainTokenStore: GSXRefreshableTokenStore {
         }
     }
 
-    public func clearToken() throws {
+    public func clearToken() async throws {
         try deleteToken()
     }
 
@@ -84,7 +84,7 @@ public actor GSXKeychainTokenStore: GSXRefreshableTokenStore {
             return nil
         }
         let token = try await refreshHandler()
-        try setToken(token)
+        try await setToken(token)
         return token
     }
 

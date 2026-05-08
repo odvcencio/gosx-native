@@ -182,6 +182,7 @@ func scaffoldProject(opts initOptions) error {
 		filepath.Join(opts.dir, "scripts/reload-native.sh"):             initReloadNativeScript(),
 		filepath.Join(iosDir, "project.yml"):                            initXcodeGenProject(opts, iosDir),
 		filepath.Join(iosDir, opts.name, opts.name+"App.swift"):         initSwiftApp(opts.name),
+		filepath.Join(iosDir, opts.name, "Native/Auth.swift"):           initSwiftAuth(),
 		filepath.Join(iosDir, opts.name, "Native/BridgeServices.swift"): initSwiftBridgeServices(sourceProjectCfg),
 		filepath.Join(iosDir, opts.name, "Native/Observability.swift"):  initSwiftObservability(),
 		iosOutput:        swiftSource,
@@ -191,6 +192,7 @@ func scaffoldProject(opts initOptions) error {
 		filepath.Join(androidDir, "app/build.gradle.kts"):                                               initAndroidAppBuild(opts),
 		filepath.Join(androidDir, "app/src/main/AndroidManifest.xml"):                                   initAndroidManifest(opts.module),
 		filepath.Join(androidDir, "app/src/main/res/values/styles.xml"):                                 initAndroidStyles(opts.name),
+		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "Auth.kt"):           initAndroidAuth(opts.module),
 		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "MainActivity.kt"):   initAndroidMainActivity(opts),
 		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "BridgeServices.kt"): initAndroidBridgeServices(opts.module, sourceProjectCfg),
 		filepath.Join(androidDir, "app/src/main/kotlin", packagePath(opts.module), "Observability.kt"):  initAndroidObservability(opts.module),
@@ -446,6 +448,47 @@ enum NativeObservability {
     static func install() {
         GSXCrashReporting.shared.configure(reporter: crashReporter)
         GSXCrashReporting.shared.installUncaughtExceptionHandler()
+    }
+}
+`
+}
+
+func initSwiftAuth() string {
+	return `import Foundation
+import GSXNativeKit
+
+enum NativeAuth {
+    static func session(baseURL: String = "http://127.0.0.1:3000") throws -> GSXAuthSession {
+        try GSXAuthSession(baseURL: baseURL, tokenStore: GSXKeychainTokenStore())
+    }
+
+    static func password(email: String, password: String) -> GSXAuthStrategy {
+        .password(email: email, password: password)
+    }
+
+    static func oauth(
+        provider: String,
+        code: String,
+        redirectURI: String? = nil,
+        codeVerifier: String? = nil
+    ) -> GSXAuthStrategy {
+        .oauth(provider: provider, code: code, redirectURI: redirectURI, codeVerifier: codeVerifier)
+    }
+
+    static func webAuthn(
+        challengeID: String,
+        clientDataJSON: String,
+        authenticatorData: String,
+        signature: String,
+        userHandle: String? = nil
+    ) -> GSXAuthStrategy {
+        .webAuthn(
+            challengeID: challengeID,
+            clientDataJSON: clientDataJSON,
+            authenticatorData: authenticatorData,
+            signature: signature,
+            userHandle: userHandle
+        )
     }
 }
 `
@@ -762,6 +805,52 @@ object NativeObservability {
         GSXCrashReporting.configure(crashReporter)
         GSXCrashReporting.installDefaultUncaughtExceptionHandler()
     }
+}
+`, module)
+}
+
+func initAndroidAuth(module string) string {
+	return fmt.Sprintf(`package %s
+
+import android.content.Context
+import com.gosx.nativekit.GSXAuthSession
+import com.gosx.nativekit.GSXAuthStrategy
+import com.gosx.nativekit.GSXKeystoreTokenStore
+
+object NativeAuth {
+    fun session(context: Context, baseURL: String = BuildConfig.GSX_SERVER_URL): GSXAuthSession =
+        GSXAuthSession(baseURL = baseURL, tokenStore = GSXKeystoreTokenStore(context))
+
+    fun password(email: String, password: String): GSXAuthStrategy =
+        GSXAuthStrategy.Password(email = email, password = password)
+
+    fun oauth(
+        provider: String,
+        code: String,
+        redirectURI: String? = null,
+        codeVerifier: String? = null,
+    ): GSXAuthStrategy =
+        GSXAuthStrategy.OAuth(
+            provider = provider,
+            code = code,
+            redirectURI = redirectURI,
+            codeVerifier = codeVerifier,
+        )
+
+    fun webAuthn(
+        challengeID: String,
+        clientDataJSON: String,
+        authenticatorData: String,
+        signature: String,
+        userHandle: String? = null,
+    ): GSXAuthStrategy =
+        GSXAuthStrategy.WebAuthn(
+            challengeID = challengeID,
+            clientDataJSON = clientDataJSON,
+            authenticatorData = authenticatorData,
+            signature = signature,
+            userHandle = userHandle,
+        )
 }
 `, module)
 }

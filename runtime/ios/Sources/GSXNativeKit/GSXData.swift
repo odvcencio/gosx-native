@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public struct GSXRequest: Equatable {
     public var method: String
@@ -160,13 +163,18 @@ public protocol GSXTokenStore {
     func token() async throws -> String?
 }
 
+public protocol GSXMutableTokenStore: GSXTokenStore {
+    func setToken(_ token: String?) async throws
+    func clearToken() async throws
+}
+
 public protocol GSXRefreshableTokenStore: GSXTokenStore {
     func refreshToken() async throws -> String?
 }
 
 public typealias GSXTokenRefreshHandler = @Sendable () async throws -> String?
 
-public actor GSXMemoryTokenStore: GSXRefreshableTokenStore {
+public actor GSXMemoryTokenStore: GSXMutableTokenStore, GSXRefreshableTokenStore {
     private var currentToken: String?
     private let refreshHandler: GSXTokenRefreshHandler?
 
@@ -179,8 +187,12 @@ public actor GSXMemoryTokenStore: GSXRefreshableTokenStore {
         currentToken
     }
 
-    public func setToken(_ token: String?) {
+    public func setToken(_ token: String?) async throws {
         currentToken = token
+    }
+
+    public func clearToken() async throws {
+        currentToken = nil
     }
 
     public func refreshToken() async throws -> String? {

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 
 public enum GSXNetworkStatus: String, Codable, Equatable {
     case unknown
@@ -49,6 +51,7 @@ public actor GSXManualNetworkStatusProvider: GSXNetworkStatusProvider {
     }
 }
 
+#if canImport(Network)
 public actor GSXPlatformNetworkStatusProvider: GSXNetworkStatusProvider {
     private let monitor: NWPathMonitor
     private let queue = DispatchQueue(label: "GSXPlatformNetworkStatusProvider")
@@ -80,3 +83,12 @@ public actor GSXPlatformNetworkStatusProvider: GSXNetworkStatusProvider {
         currentStatus = status
     }
 }
+#else
+public actor GSXPlatformNetworkStatusProvider: GSXNetworkStatusProvider {
+    public init() {}
+
+    public func status() async -> GSXNetworkStatus {
+        .unknown
+    }
+}
+#endif

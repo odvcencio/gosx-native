@@ -58,6 +58,45 @@ public struct GSXAuthTokenResponse: Codable, Equatable {
     }
 }
 
+public enum GSXAuthStrategy: Equatable {
+    case password(email: String, password: String)
+    case oauth(provider: String, code: String, redirectURI: String? = nil, codeVerifier: String? = nil)
+    case webAuthn(challengeID: String, clientDataJSON: String, authenticatorData: String, signature: String, userHandle: String? = nil)
+    case custom(strategy: String, credentials: [String: String] = [:], attributes: [String: String] = [:])
+
+    public var request: GSXAuthExchangeRequest {
+        switch self {
+        case .password(let email, let password):
+            return GSXAuthExchangeRequest(
+                strategy: "password",
+                credentials: ["email": email, "password": password]
+            )
+        case .oauth(let provider, let code, let redirectURI, let codeVerifier):
+            var credentials = ["provider": provider, "code": code]
+            if let redirectURI, !redirectURI.isEmpty {
+                credentials["redirect_uri"] = redirectURI
+            }
+            if let codeVerifier, !codeVerifier.isEmpty {
+                credentials["code_verifier"] = codeVerifier
+            }
+            return GSXAuthExchangeRequest(strategy: "oauth", credentials: credentials)
+        case .webAuthn(let challengeID, let clientDataJSON, let authenticatorData, let signature, let userHandle):
+            var credentials = [
+                "challenge_id": challengeID,
+                "client_data_json": clientDataJSON,
+                "authenticator_data": authenticatorData,
+                "signature": signature,
+            ]
+            if let userHandle, !userHandle.isEmpty {
+                credentials["user_handle"] = userHandle
+            }
+            return GSXAuthExchangeRequest(strategy: "webauthn", credentials: credentials)
+        case .custom(let strategy, let credentials, let attributes):
+            return GSXAuthExchangeRequest(strategy: strategy, credentials: credentials, attributes: attributes)
+        }
+    }
+}
+
 public final class GSXAuthClient {
     private let dataClient: GSXDataClient
 
@@ -90,6 +129,14 @@ public final class GSXAuthClient {
     }
 
     public func exchange(
+        _ strategy: GSXAuthStrategy,
+        path: String = "/api/auth/exchange",
+        policy: GSXRequestPolicy = GSXRequestPolicy(name: "auth.exchange", auth: .none, retryAttempts: 1)
+    ) async throws -> GSXAuthTokenResponse {
+        try await exchange(strategy.request, path: path, policy: policy)
+    }
+
+    public func exchange(
         strategy: String,
         credentials: [String: String] = [:],
         attributes: [String: String] = [:],
@@ -101,5 +148,84 @@ public final class GSXAuthClient {
             path: path,
             policy: policy
         )
+    }
+
+    public func signInWithPassword(
+        email: String,
+        password: String,
+        path: String = "/api/auth/exchange",
+        policy: GSXRequestPolicy = GSXRequestPolicy(name: "auth.exchange", auth: .none, retryAttempts: 1)
+    ) async throws -> GSXAuthTokenResponse {
+        try await exchange(.password(email: email, password: password), path: path, policy: policy)
+    }
+
+    public func signInWithOAuth(
+        provider: String,
+        code: String,
+        redirectURI: String? = nil,
+        codeVerifier: String? = nil,
+        path: String = "/api/auth/exchange",
+        policy: GSXRequestPolicy = GSXRequestPolicy(name: "auth.exchange", auth: .none, retryAttempts: 1)
+    ) async throws -> GSXAuthTokenResponse {
+        try await exchange(.oauth(provider: provider, code: code, redirectURI: redirectURI, codeVerifier: codeVerifier), path: path, policy: policy)
+    }
+
+    public func signInWithWebAuthn(
+        challengeID: String,
+        clientDataJSON: String,
+        authenticatorData: String,
+        signature: String,
+        userHandle: String? = nil,
+        path: String = "/api/auth/exchange",
+        policy: GSXRequestPolicy = GSXRequestPolicy(name: "auth.exchange", auth: .none, retryAttempts: 1)
+    ) async throws -> GSXAuthTokenResponse {
+        try await exchange(
+            .webAuthn(
+                challengeID: challengeID,
+                clientDataJSON: clientDataJSON,
+                authenticatorData: authenticatorData,
+                signature: signature,
+                userHandle: userHandle
+            ),
+            path: path,
+            policy: policy
+        )
+    }
+}
+
+public final class GSXAuthSession {
+    private let client: GSXAuthClient
+    private let tokenStore: any GSXMutableTokenStore
+
+    public init(client: GSXAuthClient, tokenStore: any GSXMutableTokenStore) {
+        self.client = client
+        self.tokenStore = tokenStore
+    }
+
+    public convenience init(transport: any GSXTransport, tokenStore: any GSXMutableTokenStore) {
+        self.init(client: GSXAuthClient(transport: transport), tokenStore: tokenStore)
+    }
+
+    public convenience init(baseURL: URL, defaultHeaders: [String: String] = [:], tokenStore: any GSXMutableTokenStore) {
+        self.init(client: GSXAuthClient(baseURL: baseURL, defaultHeaders: defaultHeaders), tokenStore: tokenStore)
+    }
+
+    public convenience init(baseURL: String, defaultHeaders: [String: String] = [:], tokenStore: any GSXMutableTokenStore) throws {
+        self.init(client: try GSXAuthClient(baseURL: baseURL, defaultHeaders: defaultHeaders), tokenStore: tokenStore)
+    }
+
+    @discardableResult
+    public func signIn(
+        _ strategy: GSXAuthStrategy,
+        path: String = "/api/auth/exchange",
+        policy: GSXRequestPolicy = GSXRequestPolicy(name: "auth.exchange", auth: .none, retryAttempts: 1)
+    ) async throws -> GSXAuthTokenResponse {
+        let response = try await client.exchange(strategy, path: path, policy: policy)
+        try await tokenStore.setToken(response.accessToken)
+        return response
+    }
+
+    public func signOut() async throws {
+        try await tokenStore.clearToken()
     }
 }

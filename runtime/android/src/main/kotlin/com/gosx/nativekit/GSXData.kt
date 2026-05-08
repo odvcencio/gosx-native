@@ -112,6 +112,14 @@ interface GSXTokenStore {
     suspend fun token(): String?
 }
 
+interface GSXMutableTokenStore : GSXTokenStore {
+    suspend fun setToken(token: String?)
+
+    suspend fun clearToken() {
+        setToken(null)
+    }
+}
+
 interface GSXRefreshableTokenStore : GSXTokenStore {
     suspend fun refreshToken(): String?
 }
@@ -119,7 +127,7 @@ interface GSXRefreshableTokenStore : GSXTokenStore {
 class GSXMemoryTokenStore(
     initialToken: String? = null,
     private val refreshHandler: (suspend () -> String?)? = null,
-) : GSXRefreshableTokenStore {
+) : GSXMutableTokenStore, GSXRefreshableTokenStore {
     @Volatile
     private var currentToken: String? = initialToken
 
@@ -131,7 +139,7 @@ class GSXMemoryTokenStore(
         return refreshed
     }
 
-    fun setToken(token: String?) {
+    override suspend fun setToken(token: String?) {
         currentToken = token
     }
 }

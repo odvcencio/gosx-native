@@ -386,6 +386,72 @@ final class GSXSignalTests: XCTestCase {
         XCTAssertEqual(credentials["email"] as? String, "user@example.com")
     }
 
+    func testAuthClientExchangesOAuthCodes() async throws {
+        let tokenBody = Data(#"{"access_token":"access-2"}"#.utf8)
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: tokenBody))
+        let client = GSXAuthClient(dataClient: GSXDataClient(transport: transport))
+
+        let token = try await client.signInWithOAuth(
+            provider: "github",
+            code: "code-1",
+            redirectURI: "gosx://callback",
+            codeVerifier: "verifier-1"
+        )
+
+        XCTAssertEqual(token.accessToken, "access-2")
+        let request = try XCTUnwrap(transport.requests.first)
+        let body = try XCTUnwrap(request.body)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["strategy"] as? String, "oauth")
+        let credentials = try XCTUnwrap(object["credentials"] as? [String: Any])
+        XCTAssertEqual(credentials["provider"] as? String, "github")
+        XCTAssertEqual(credentials["code"] as? String, "code-1")
+        XCTAssertEqual(credentials["redirect_uri"] as? String, "gosx://callback")
+        XCTAssertEqual(credentials["code_verifier"] as? String, "verifier-1")
+    }
+
+    func testAuthClientExchangesWebAuthnAssertions() async throws {
+        let tokenBody = Data(#"{"access_token":"access-3"}"#.utf8)
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: tokenBody))
+        let client = GSXAuthClient(dataClient: GSXDataClient(transport: transport))
+
+        let token = try await client.signInWithWebAuthn(
+            challengeID: "challenge-1",
+            clientDataJSON: "client-data",
+            authenticatorData: "authenticator-data",
+            signature: "signature-1",
+            userHandle: "user-1"
+        )
+
+        XCTAssertEqual(token.accessToken, "access-3")
+        let request = try XCTUnwrap(transport.requests.first)
+        let body = try XCTUnwrap(request.body)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["strategy"] as? String, "webauthn")
+        let credentials = try XCTUnwrap(object["credentials"] as? [String: Any])
+        XCTAssertEqual(credentials["challenge_id"] as? String, "challenge-1")
+        XCTAssertEqual(credentials["client_data_json"] as? String, "client-data")
+        XCTAssertEqual(credentials["authenticator_data"] as? String, "authenticator-data")
+        XCTAssertEqual(credentials["signature"] as? String, "signature-1")
+        XCTAssertEqual(credentials["user_handle"] as? String, "user-1")
+    }
+
+    func testAuthSessionPersistsAccessTokenAndSignsOut() async throws {
+        let tokenBody = Data(#"{"access_token":"access-4"}"#.utf8)
+        let transport = StaticTransport(response: GSXResponse(status: 200, body: tokenBody))
+        let tokenStore = GSXMemoryTokenStore()
+        let session = GSXAuthSession(transport: transport, tokenStore: tokenStore)
+
+        let token = try await session.signIn(.password(email: "user@example.com", password: "secret"))
+
+        XCTAssertEqual(token.accessToken, "access-4")
+        XCTAssertEqual(try await tokenStore.token(), "access-4")
+
+        try await session.signOut()
+
+        XCTAssertNil(try await tokenStore.token())
+    }
+
     func testCapabilityCheckerReportsMissingRequiredCapabilities() {
         let report = GSXCapabilityChecker.check(
             required: [

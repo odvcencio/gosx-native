@@ -22,7 +22,7 @@ class GSXKeystoreTokenStore(
     private val preferenceName: String = DEFAULT_PREFERENCE_NAME,
     private val tokenKey: String = DEFAULT_TOKEN_KEY,
     private val refreshHandler: (suspend () -> String?)? = null,
-) : GSXRefreshableTokenStore {
+) : GSXMutableTokenStore, GSXRefreshableTokenStore {
     private val appContext: Context = context.applicationContext
     private val lock = Any()
 
@@ -33,13 +33,13 @@ class GSXKeystoreTokenStore(
         readToken()
     }
 
-    fun setToken(token: String?) {
+    override suspend fun setToken(token: String?) {
         synchronized(lock) {
             writeToken(token)
         }
     }
 
-    fun clearToken() {
+    override suspend fun clearToken() {
         setToken(null)
     }
 
