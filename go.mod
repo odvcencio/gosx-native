@@ -3,13 +3,13 @@ module m31labs.dev/gosx-native
 go 1.26
 
 replace (
-	m31labs.dev/gosx => ../gosx
 	github.com/odvcencio/gotreesitter => ../gotreesitter
+	m31labs.dev/gosx => ../gosx
 )
 
 require (
-	m31labs.dev/gosx v0.0.0-00010101000000-000000000000
 	github.com/odvcencio/gotreesitter v0.15.3
+	m31labs.dev/gosx v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -18,7 +18,7 @@ require (
 	github.com/odvcencio/corkscrewdb v0.2.0 // indirect
 	github.com/odvcencio/manta v0.0.13 // indirect
 	github.com/odvcencio/mll v0.0.1 // indirect
-	github.com/odvcencio/turboquant v0.1.2 // indirect
+	github.com/odvcencio/turboquant v0.1.3 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
