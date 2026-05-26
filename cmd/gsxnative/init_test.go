@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx/nir"
 )
 
 func TestInitScaffoldsNativeProject(t *testing.T) {

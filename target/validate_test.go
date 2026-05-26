@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx/nir"
 )
 
 func TestValidateScene3DStaticSurfaceAccepted(t *testing.T) {

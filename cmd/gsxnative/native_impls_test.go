@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/gosx-native/target"
+	"m31labs.dev/gosx-native/target"
 )
 
 func TestParseNativeImplementationsGroupsFunctionTargets(t *testing.T) {

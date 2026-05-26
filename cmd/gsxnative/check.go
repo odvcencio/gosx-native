@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/odvcencio/gosx-native/target"
+	"m31labs.dev/gosx-native/target"
 )
 
 func runCheck(args []string) error {

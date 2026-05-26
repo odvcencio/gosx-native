@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odvcencio/gosx/nir"
-	"github.com/odvcencio/gosx/scene"
+	"m31labs.dev/gosx/nir"
+	"m31labs.dev/gosx/scene"
 )
 
 // CanonicalIR lowers a NIR <Scene3D> element into gosx's canonical scene.IR.

@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/gosx/scene"
+	"m31labs.dev/gosx/scene"
 )
 
 const (

@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/odvcencio/gosx-native/grammar"
-	gosxlower "github.com/odvcencio/gosx-native/lower/gosx"
-	swiftlower "github.com/odvcencio/gosx-native/lower/swift"
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx-native/grammar"
+	gosxlower "m31labs.dev/gosx-native/lower/gosx"
+	swiftlower "m31labs.dev/gosx-native/lower/swift"
+	"m31labs.dev/gosx/nir"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 )
 

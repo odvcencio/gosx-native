@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx/nir"
 )
 
 func TestEmitCounter(t *testing.T) {

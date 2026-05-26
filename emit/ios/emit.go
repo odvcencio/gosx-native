@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odvcencio/gosx-native/emit/shared"
-	"github.com/odvcencio/gosx-native/target"
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx-native/emit/shared"
+	"m31labs.dev/gosx-native/target"
+	"m31labs.dev/gosx/nir"
 )
 
 // Emit writes SwiftUI source for every component in mod.

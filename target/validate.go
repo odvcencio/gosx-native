@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx/nir"
 )
 
 type Target string

@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/odvcencio/gosx-native/target"
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx-native/target"
+	"m31labs.dev/gosx/nir"
 )
 
 type sourceDeclarations struct {

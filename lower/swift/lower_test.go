@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/gosx-native/grammar"
+	"m31labs.dev/gosx-native/grammar"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 )
 

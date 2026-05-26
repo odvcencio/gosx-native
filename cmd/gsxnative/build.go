@@ -13,10 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/odvcencio/gosx-native/emit/android"
-	"github.com/odvcencio/gosx-native/emit/ios"
-	"github.com/odvcencio/gosx-native/target"
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx-native/emit/android"
+	"m31labs.dev/gosx-native/emit/ios"
+	"m31labs.dev/gosx-native/target"
+	"m31labs.dev/gosx/nir"
 )
 
 type commandRunner interface {

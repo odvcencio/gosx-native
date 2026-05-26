@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/odvcencio/gosx/nir"
+	"m31labs.dev/gosx/nir"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 )
 

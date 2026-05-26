@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/odvcencio/gosx-native/target"
+	"m31labs.dev/gosx-native/target"
 )
 
 type devOptions struct {
