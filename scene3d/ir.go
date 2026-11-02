@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"m31labs.dev/gosx/nir"
+	"m31labs.dev/gosx-native/nir"
 	"m31labs.dev/gosx/scene"
 )
 

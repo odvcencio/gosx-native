@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  GOWORK: "off"
+  GOFLAGS: -mod=readonly
+
 jobs:
   unit-linux:
     runs-on: ubuntu-latest
@@ -12,14 +16,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           path: gosx-native
-      - uses: actions/checkout@v6
-        with:
-          repository: odvcencio/gosx
-          path: gosx
-      - uses: actions/checkout@v6
-        with:
-          repository: odvcencio/gotreesitter
-          path: gotreesitter
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"
@@ -67,14 +63,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           path: gosx-native
-      - uses: actions/checkout@v6
-        with:
-          repository: odvcencio/gosx
-          path: gosx
-      - uses: actions/checkout@v6
-        with:
-          repository: odvcencio/gotreesitter
-          path: gotreesitter
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"
@@ -146,14 +134,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           path: gosx-native
-      - uses: actions/checkout@v6
-        with:
-          repository: odvcencio/gosx
-          path: gosx
-      - uses: actions/checkout@v6
-        with:
-          repository: odvcencio/gotreesitter
-          path: gotreesitter
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"m31labs.dev/gosx-native/emit/shared"
+	"m31labs.dev/gosx-native/nir"
 	"m31labs.dev/gosx-native/target"
-	"m31labs.dev/gosx/nir"
 )
 
 // Emit writes Jetpack Compose Kotlin source for every component in mod.

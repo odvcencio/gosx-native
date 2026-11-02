@@ -15,8 +15,8 @@ import (
 
 	"m31labs.dev/gosx-native/emit/android"
 	"m31labs.dev/gosx-native/emit/ios"
+	"m31labs.dev/gosx-native/nir"
 	"m31labs.dev/gosx-native/target"
-	"m31labs.dev/gosx/nir"
 )
 
 type commandRunner interface {
@@ -1396,7 +1396,7 @@ func repoRoot() (string, error) {
 	}
 	for {
 		modPath := filepath.Join(dir, "go.mod")
-		if data, err := os.ReadFile(modPath); err == nil && strings.Contains(string(data), "module github.com/odvcencio/gosx-native") {
+		if data, err := os.ReadFile(modPath); err == nil && strings.Contains(string(data), "module m31labs.dev/gosx-native") {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)

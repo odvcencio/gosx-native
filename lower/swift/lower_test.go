@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"m31labs.dev/gosx-native/grammar"
 	gotreesitter "github.com/odvcencio/gotreesitter"
+	"m31labs.dev/gosx-native/grammar"
 )
 
 func TestLowerCounter(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
+	gotreesitter "github.com/odvcencio/gotreesitter"
 	"m31labs.dev/gosx-native/grammar"
 	gosxlower "m31labs.dev/gosx-native/lower/gosx"
 	swiftlower "m31labs.dev/gosx-native/lower/swift"
-	"m31labs.dev/gosx/nir"
-	gotreesitter "github.com/odvcencio/gotreesitter"
+	"m31labs.dev/gosx-native/nir"
 )
 
 func runCompile(args []string) error {
