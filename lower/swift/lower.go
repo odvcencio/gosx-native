@@ -2,6 +2,7 @@ package swift
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -298,9 +299,13 @@ func (l *lowerer) lowerRxExpr(n *gotreesitter.Node) (*nir.RxExpr, error) {
 			Span:    span(n),
 		}, nil
 	case "string_literal":
+		value, err := strconv.Unquote(text(l.src, n))
+		if err != nil {
+			return nil, fmt.Errorf("unsupported Swift string literal: %w", err)
+		}
 		return &nir.RxExpr{
 			Kind:    "literal",
-			Literal: &nir.Literal{Type: "string", Value: strings.Trim(text(l.src, n), `"`)},
+			Literal: &nir.Literal{Type: "string", Value: value},
 			Span:    span(n),
 		}, nil
 	case "simple_identifier":
