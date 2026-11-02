@@ -7,12 +7,12 @@ import (
 	"strings"
 	"unicode"
 
+	gotreesitter "github.com/odvcencio/gotreesitter"
 	gosxlang "m31labs.dev/gosx"
+	"m31labs.dev/gosx-native/nir"
 	"m31labs.dev/gosx-native/target"
 	gosxir "m31labs.dev/gosx/ir"
 	islandprogram "m31labs.dev/gosx/island/program"
-	"m31labs.dev/gosx/nir"
-	gotreesitter "github.com/odvcencio/gotreesitter"
 )
 
 type structInfo struct {
@@ -273,6 +273,13 @@ func (l *lowerer) lowerComponentRefView(node *gosxir.Node) (nir.View, error) {
 			return nil, err
 		}
 		if ok {
+			// GoSX resolves strict component attributes to Go field names.
+			// Native props use the same canonical names as their declarations.
+			if info := l.structs[l.signatures[node.Tag].PropsType]; info.FieldNames != nil {
+				if name := info.FieldNames[prop.Name]; name != "" {
+					prop.Name = name
+				}
+			}
 			ref.Props = append(ref.Props, prop)
 		}
 	}
@@ -1185,7 +1192,9 @@ func collectStructInfo(n *gotreesitter.Node, src []byte, lang *gotreesitter.Lang
 
 func collectComponentSignatures(root *gotreesitter.Node, src []byte, lang *gotreesitter.Language) map[string]componentSignature {
 	out := make(map[string]componentSignature)
-	for _, fn := range descendantsOfType(root, lang, "function_declaration") {
+	declarations := descendantsOfType(root, lang, "function_declaration")
+	declarations = append(declarations, descendantsOfType(root, lang, "gosx_component_declaration")...)
+	for _, fn := range declarations {
 		name := nodeText(src, fieldChild(fn, lang, "name"))
 		if name == "" {
 			continue
@@ -1195,7 +1204,7 @@ func collectComponentSignatures(root *gotreesitter.Node, src []byte, lang *gotre
 			continue
 		}
 		for _, param := range namedChildren(params) {
-			if nodeType(param, lang) != "parameter_declaration" {
+			if typ := nodeType(param, lang); typ != "parameter_declaration" && typ != "gosx_component_parameter" {
 				continue
 			}
 			typeNode := fieldChild(param, lang, "type")

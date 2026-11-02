@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"m31labs.dev/gosx-native/nir"
 	nativescene3d "m31labs.dev/gosx-native/scene3d"
 	"m31labs.dev/gosx-native/target"
-	"m31labs.dev/gosx/nir"
 )
 
 type sceneConformOptions struct {

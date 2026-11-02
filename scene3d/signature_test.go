@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"m31labs.dev/gosx/nir"
+	"m31labs.dev/gosx-native/nir"
 )
 
 func TestRenderSignatureIncludesNodesHTMLAndPostFX(t *testing.T) {

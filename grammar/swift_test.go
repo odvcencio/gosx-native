@@ -48,6 +48,28 @@ func TestParsesCounter(t *testing.T) {
 	}
 }
 
+// Comments and escaped strings are part of the supported Swift-GSX subset.
+func TestParsesSwiftCommentsAndEscapedStrings(t *testing.T) {
+	lang, err := SwiftGSXLanguage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parser := gotreesitter.NewParser(lang)
+	src := []byte(`// title
+func body() -> Node {
+    /* a string */ let café = "hello \"world\""
+    return <text>{café}</text>
+}`)
+	tree, err := parser.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tree.Release()
+	if tree.RootNode().HasError() {
+		t.Fatalf("parse errors:\n%s", tree.RootNode().SExpr(lang))
+	}
+}
+
 func containsType(n *gotreesitter.Node, lang *gotreesitter.Language, want string) bool {
 	if n == nil {
 		return false

@@ -4,7 +4,7 @@ type BadgeProps struct {
 	Label string
 }
 
-func Badge(props BadgeProps) Node {
+component Badge(props: BadgeProps) {
 	return <text>{props.Label}</text>
 }
 
@@ -13,7 +13,7 @@ type ProfileProps struct {
 }
 
 //gosx:island
-func Profile(props ProfileProps) Node {
+component Profile(props: ProfileProps) {
 	return <vstack>
 		<Badge label={props.Name} />
 	</vstack>

@@ -13,11 +13,20 @@ var (
 	swiftGSXErr  error
 )
 
-// SwiftGSXGrammar extends Swift with JSX-style markup as expressions.
+// SwiftGSXGrammar defines the supported Swift-GSX subset with JSX-style markup.
+// It deliberately avoids inheriting unrelated Swift grammar conflicts.
 // File extension: .swift.gsx.
 func SwiftGSXGrammar() *grammargen.Grammar {
-	return grammargen.ExtendGrammar("swift_gsx", grammargen.SwiftGrammar(), func(g *grammargen.Grammar) {
+	base := grammargen.NewGrammar("swift_gsx")
+	base.Define("source_file", grammargen.Blank())
+	return grammargen.ExtendGrammar("swift_gsx", base, func(g *grammargen.Grammar) {
+		g.SetExtras(grammargen.Pat(`\s+`), grammargen.Pat(`//[^\n]*`), grammargen.Pat(`/\*([^*]|\*+[^*/])*\*+/`))
 		g.SetExternals(grammargen.Sym("jsx_text"))
+		g.Define("simple_identifier", grammargen.Pat(`[\p{L}_][\p{L}\p{N}_]*`))
+		g.Define("integer_literal", grammargen.Pat(`[0-9]+`))
+		g.Define("string_literal", grammargen.Token(grammargen.Seq(
+			grammargen.Str(`"`), grammargen.Pat(`([^"\\]|\\.)*`), grammargen.Str(`"`),
+		)))
 
 		g.Define("type_identifier",
 			grammargen.Pat(`[A-Z][A-Za-z0-9_]*`))
